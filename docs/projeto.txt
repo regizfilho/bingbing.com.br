@@ -1,0 +1,94 @@
+Estou Criando um micro saas de bingo online.
+
+
+
+essas sao as seguintes features.
+
+
+
+
+
+
+
+Quero monetizar por créditos, o usuario compra créditos, e com os créditos pode comprar partidas.
+
+
+
+as partidas tera varios pacotes, pacotes básicos free com até x pessoas, premios cadastrados, quantidade de cartelas que podem receber vitoria por partida, entre outras coisas que vc pode sugerir pra agregar valor.
+
+
+
+O criador da partida pode convidar por link os jogadores
+
+
+
+Deve ter um botão para iniciar a partida e ter dois modos automatico ou manual, no manual o usuario deve clicar em sortear para bolinha ser sorteada, automatico a cada 2, 3 segundos também configurado pelo criador da partida.
+
+
+
+deve mostrar as ultimas bolinhas sorteadas, todas as bolinhas sorteadas, e o top ganhadores, os premios também é na ordem do que foi cadastrado e ordenado. O premio é vinculado ao ganhador.
+
+
+
+os jogadores recebem uma cartela nova random a cada nova partida no link de convite.
+
+
+
+O jogador pode marcar na cartela os numeros sorteados.
+
+
+
+deve ter um lugar pro criador da partida ou sinalizar que tem uma cartela sorteada, mais nao deve dizer quem é, até que o ganhador diga bingo e vincule a cartela premiada misteriosa ao ganhador, e também vincular com o premio.
+
+
+
+deve ter um top ganhadores com mais vitorias, deve ter um global também, deve ter titulos como jogador experiente, mestre de partidas. o Rank deve ser entre a partida e global. Deve ter um rank mensal, semanal tbm.
+
+
+
+Nao precisa integrar agora sistema de pagamentos para comprar créditos, sistema deve cumprir todos os requisitos de maneira direta para ter uma base e depois vou aprimorar.
+
+
+
+Banco por enquanto é sqllite, considere as querys corretas com eloquente para.
+
+
+
+Deve ter histórico de compras de crédito, pedidos de reembolso pelo tempo usado
+
+
+
+deve ter um sistema devalor por moeda 1 moeda vale x reais.
+
+
+
+Deve usar laravel mais novo monolito, usando livewire 4 e alpine, siga a criação de paginas com lnew class extends components, use a estrutura de pages::modulo.page para criar as paginas. Componentes ficara na pasta pagrao do novo livewire views>componentes. Nao crie scripts com rotas de livewire/ que isso apesar de permitir nao usa mais e o livewire 4 novo é mais rapido.
+
+
+
+Como sistema terá diversas contas, nao pode misturar dados de criadores com outros jogadores.
+
+
+
+Nao vejo a necessidade de usar websocket o sistema é aparentemente simples, com bastante regrinha porém me ajude a melhor elaborar e fechar as pontas soltas.
+
+
+
+Seja objetivo no desenvolvimento desse projeto, sua ajuda é essencial e nao cometa burradas.
+
+
+
+Quando precisar criar migrations, models me de comandos completos como model com migration, lembrese de organizar também o models em pastas especificas para organização do projeto. É laravel 12 e livewire 4, nunca esqueça disso.
+
+php artisan make:model Wallet/Wallet -m
+php artisan make:model Wallet/Transaction -m
+php artisan make:model Wallet/Package -m
+php artisan make:model Game/Game -m
+php artisan make:model Game/GamePackage -m
+php artisan make:model Game/Prize -m
+php artisan make:model Game/Player -m
+php artisan make:model Game/Card -m
+php artisan make:model Game/Draw -m
+php artisan make:model Game/Winner -m
+php artisan make:model Ranking/Rank -m
+php artisan make:model Ranking/Title -m
