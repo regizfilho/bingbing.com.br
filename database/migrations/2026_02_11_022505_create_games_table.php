@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('invite_code', 12)->unique();
             $table->enum('draw_mode', ['manual', 'automatic'])->default('manual');
-            $table->integer('auto_draw_seconds')->default(3);
+            $table->integer('auto_draw_seconds')->nullable()->default(3);
             $table->enum('status', ['draft', 'waiting', 'active', 'paused', 'finished'])->default('draft');
             $table->timestamp('started_at')->nullable();
             $table->timestamp('finished_at')->nullable();

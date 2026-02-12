@@ -55,7 +55,7 @@
     <div class="bg-glow"></div>
 
     {{-- Navegação Principal --}}
-    <nav class="glass-nav sticky top-0 z-[100]">
+    <nav class="glass-nav  top-0 z-[100]">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-20">
 

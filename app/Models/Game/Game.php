@@ -2,13 +2,12 @@
 
 namespace App\Models\Game;
 
-use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use App\Models\User;
-use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class Game extends Model
 {
@@ -31,7 +30,7 @@ class Game extends Model
         'current_round',
         'status',
         'started_at',
-        'finished_at'
+        'finished_at',
     ];
 
     protected $casts = [
@@ -52,7 +51,7 @@ class Game extends Model
         'card_size' => 24,
         'max_rounds' => 1,
         'draw_mode' => 'manual',
-        'auto_draw_seconds' => 10,
+        'auto_draw_seconds' => 3,  // Mudei de 10 para 3
         'show_drawn_to_players' => true,
         'show_player_matches' => true,
         'cards_per_player' => 1,
@@ -67,20 +66,47 @@ class Game extends Model
     protected static function booted()
     {
         static::creating(function ($game) {
-            if (!$game->invite_code) {
+            if (! $game->invite_code) {
                 $game->invite_code = strtoupper(Str::random(12));
             }
         });
     }
 
     // Relacionamentos
-    public function creator() { return $this->belongsTo(User::class, 'creator_id'); }
-    public function package() { return $this->belongsTo(GamePackage::class, 'game_package_id'); }
-    public function prizes() { return $this->hasMany(Prize::class)->orderBy('position'); }
-    public function players() { return $this->hasMany(Player::class); }
-    public function draws() { return $this->hasMany(Draw::class)->orderBy('sequence'); }
-    public function winners() { return $this->hasMany(Winner::class); }
-    public function cards() { return $this->hasMany(Card::class); }
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'creator_id');
+    }
+
+    public function package()
+    {
+        return $this->belongsTo(GamePackage::class, 'game_package_id');
+    }
+
+    public function prizes()
+    {
+        return $this->hasMany(Prize::class)->orderBy('position');
+    }
+
+    public function players()
+    {
+        return $this->hasMany(Player::class);
+    }
+
+    public function draws()
+    {
+        return $this->hasMany(Draw::class)->orderBy('sequence');
+    }
+
+    public function winners()
+    {
+        return $this->hasMany(Winner::class);
+    }
+
+    public function cards()
+    {
+        return $this->hasMany(Card::class);
+    }
 
     public function canJoin(): bool
     {
@@ -95,11 +121,12 @@ class Game extends Model
 
         while (count($numbers) < $cardSize) {
             $num = rand(1, 75);
-            if (!in_array($num, $numbers)) {
+            if (! in_array($num, $numbers)) {
                 $numbers[] = $num;
             }
         }
         sort($numbers);
+
         return $numbers;
     }
 
@@ -110,7 +137,7 @@ class Game extends Model
     {
         // Força sincronização com o banco de dados
         $this->refresh();
-        
+
         $currentRound = (int) $this->current_round;
         $cardsPerPlayer = (int) ($this->cards_per_player ?? 1);
 
@@ -137,13 +164,19 @@ class Game extends Model
 
     public function drawNumber(): ?Draw
     {
-        if ($this->status !== 'active') return null;
+        if ($this->status !== 'active') {
+            return null;
+        }
 
         $drawnNumbers = $this->getCurrentRoundDrawnNumbers();
-        if (count($drawnNumbers) >= 75) return null;
+        if (count($drawnNumbers) >= 75) {
+            return null;
+        }
 
         $available = array_diff(range(1, 75), $drawnNumbers);
-        if (empty($available)) return null;
+        if (empty($available)) {
+            return null;
+        }
 
         $number = collect($available)->random();
         $sequence = $this->draws()->where('round_number', $this->current_round)->max('sequence') ?? 0;
@@ -174,11 +207,13 @@ class Game extends Model
      */
     public function startNextRound(): bool
     {
-        if (!$this->canStartNextRound()) return false;
+        if (! $this->canStartNextRound()) {
+            return false;
+        }
 
         // Persistência imediata do incremento
         $this->increment('current_round');
-        
+
         // Refresh para carregar o novo valor e as relações
         $this->refresh();
 
@@ -190,11 +225,19 @@ class Game extends Model
 
     public function canStartNextRound(): bool
     {
-        if ($this->status !== 'active') return false;
-        if ($this->current_round >= $this->max_rounds) return false;
-        if ($this->players()->count() === 0) return false;
+        if ($this->status !== 'active') {
+            return false;
+        }
+        if ($this->current_round >= $this->max_rounds) {
+            return false;
+        }
+        if ($this->players()->count() === 0) {
+            return false;
+        }
 
-        if ($this->prizes()->count() === 0) return true;
+        if ($this->prizes()->count() === 0) {
+            return true;
+        }
 
         $claimedInRound = $this->winners()
             ->where('round_number', $this->current_round)
@@ -224,7 +267,7 @@ class Game extends Model
 
         foreach ($winners as $winner) {
             $userId = $winner->user_id;
-            if (!isset($ranking[$userId])) {
+            if (! isset($ranking[$userId])) {
                 $ranking[$userId] = [
                     'user' => $winner->user,
                     'wins' => 0,
@@ -237,17 +280,53 @@ class Game extends Model
             $ranking[$userId]['rounds'][] = $winner->round_number;
         }
 
-        usort($ranking, fn($a, $b) => $b['wins'] <=> $a['wins']);
+        usort($ranking, fn ($a, $b) => $b['wins'] <=> $a['wins']);
+
         return array_values($ranking);
     }
 
-    public function getActivePlayersCount(): int { return $this->players()->count(); }
-    public function getCurrentRoundDrawsCount(): int { return $this->draws()->where('round_number', $this->current_round)->count(); }
-    public function getCurrentRoundDrawnNumbers(): array { return $this->draws()->where('round_number', $this->current_round)->pluck('number')->toArray(); }
-    public function isFull(): bool { return $this->players()->count() >= $this->package->max_players; }
-    public function getSpotsLeft(): int { return max(0, $this->package->max_players - $this->players()->count()); }
-    public function willRefund(): bool { return $this->status === 'finished' && ($this->players()->count() === 0 || $this->winners()->count() === 0); }
-    public function getPackageCost(): int { return $this->package->cost_credits ?? 0; }
-    public function isFree(): bool { return $this->package->is_free ?? true; }
-    public function getRouteKeyName() { return 'uuid'; }
+    public function getActivePlayersCount(): int
+    {
+        return $this->players()->count();
+    }
+
+    public function getCurrentRoundDrawsCount(): int
+    {
+        return $this->draws()->where('round_number', $this->current_round)->count();
+    }
+
+    public function getCurrentRoundDrawnNumbers(): array
+    {
+        return $this->draws()->where('round_number', $this->current_round)->pluck('number')->toArray();
+    }
+
+    public function isFull(): bool
+    {
+        return $this->players()->count() >= $this->package->max_players;
+    }
+
+    public function getSpotsLeft(): int
+    {
+        return max(0, $this->package->max_players - $this->players()->count());
+    }
+
+    public function willRefund(): bool
+    {
+        return $this->status === 'finished' && ($this->players()->count() === 0 || $this->winners()->count() === 0);
+    }
+
+    public function getPackageCost(): int
+    {
+        return $this->package->cost_credits ?? 0;
+    }
+
+    public function isFree(): bool
+    {
+        return $this->package->is_free ?? true;
+    }
+
+    public function getRouteKeyName()
+    {
+        return 'uuid';
+    }
 }
