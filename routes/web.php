@@ -1,6 +1,11 @@
 <?php
 
+use App\Http\Controllers\Auth\AuthenticatedSessionController;
+use App\Http\Controllers\Auth\SessionController;
 use App\Livewire\Display\GameDisplay;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'leading');
@@ -25,8 +30,12 @@ Route::middleware(['auth'])->group(function () {
     Route::livewire('/rankings', 'pages::rankings.index')->name('rankings.index');
 });
 
-// Rota PÚBLICA para tela de display (TV/telão) - não requer autenticação
+// Rota PÚBLICA para tela de display (TV/telão)
 Route::livewire('/display/{uuid}', 'pages::games.display')->name('games.display');
-//Route::get('/display/{uuid}', GameDisplay::class)->name('games.display');
+
+Route::post('/logout', [SessionController::class, 'destroy'])
+    ->middleware('auth')
+    ->name('logout');
+
 
 require __DIR__.'/auth.php';
