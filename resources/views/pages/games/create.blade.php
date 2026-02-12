@@ -196,263 +196,218 @@ new class extends Component {
     }
 };
 ?>
-
 <div>
-    <x-slot name="header">Criar Nova Partida</x-slot>
+    <x-slot name="header">Configurar Missão</x-slot>
 
-    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-900">Criar Nova Partida</h1>
-            <p class="text-gray-600">Configure os detalhes da sua partida de bingo</p>
+    <div class="max-w-5xl mx-auto px-4 py-12">
+        
+        {{-- Header Tático --}}
+        <div class="mb-12">
+            <div class="flex items-center gap-4 mb-3">
+                <div class="h-[1px] w-12 bg-gradient-to-r from-blue-600 to-transparent"></div>
+                <span class="text-blue-500/80 font-black tracking-[0.4em] uppercase text-[9px] italic">Host Command Center</span>
+            </div>
+            <h1 class="text-5xl font-black text-white tracking-tighter uppercase italic leading-none">
+                CRIAR NOVA <span class="text-blue-500">PARTIDA</span>
+            </h1>
         </div>
 
-        @if (session('error'))
-            <div class="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-                {{ session('error') }}
+        {{-- Barra de Recursos --}}
+        <div class="mb-10 relative overflow-hidden bg-[#0b0d11] border border-white/10 rounded-[2rem] p-8 shadow-2xl">
+            <div class="absolute top-0 right-0 w-32 h-full bg-blue-600/5 blur-3xl"></div>
+            <div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                    <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 italic">Créditos de Operação</p>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-blue-500 font-black text-sm italic">C$</span>
+                        <span class="text-4xl font-black text-white italic tracking-tighter">
+                            {{ number_format($this->user->wallet->balance, 0, ',', '.') }}
+                        </span>
+                    </div>
+                </div>
+                <a href="{{ route('wallet.index') }}" class="group flex items-center gap-3 px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all">
+                    <span class="text-[10px] font-black text-white uppercase tracking-widest italic">Recarregar Saldo</span>
+                    <span class="text-blue-500 group-hover:translate-x-1 transition-transform">➕</span>
+                </a>
             </div>
-        @endif
-
-        <div class="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4 flex justify-between items-center">
-            <span class="text-sm text-blue-800">Seu saldo:</span>
-            <span class="text-lg font-bold text-blue-900">
-                {{ number_format($this->user->wallet->balance, 0) }} créditos
-            </span>
         </div>
 
-        <form wire:submit="create" class="space-y-6">
-            <div class="bg-white rounded-lg shadow p-6 border">
-                <label class="block text-sm font-medium text-gray-700 mb-2">Nome da Partida</label>
-                <input type="text" wire:model.blur="name"
-                    class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                    placeholder="Ex: Bingo de Natal 2024">
-                @error('name')
-                    <span class="text-red-500 text-sm">{{ $message }}</span>
-                @enderror
+        <form wire:submit="create" class="space-y-10">
+            
+            {{-- Identificação --}}
+            <div class="space-y-4">
+                <label class="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-6 italic">Identificação da Partida</label>
+                <div class="relative group">
+                    <div class="absolute -inset-1 bg-blue-600/5 rounded-[2.5rem] blur opacity-0 group-focus-within:opacity-100 transition duration-500"></div>
+                    <input type="text" wire:model.blur="name"
+                        class="relative w-full bg-[#0b0d11] border border-white/10 rounded-[2rem] px-8 py-6 text-white font-black uppercase italic tracking-widest focus:border-blue-500/50 focus:ring-0 transition-all placeholder:text-slate-800 text-lg"
+                        placeholder="NOME DA SALA EX: ALPHA LOBBY">
+                </div>
+                @error('name') <span class="text-red-500 text-[10px] font-black uppercase ml-6 tracking-widest italic">{{ $message }}</span> @enderror
             </div>
 
-            <div class="bg-white rounded-lg shadow p-6 border">
-                <label class="block text-sm font-medium text-gray-700 mb-4">Escolha o Pacote</label>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {{-- Seleção de Protocolo (Pacotes) --}}
+            <div class="space-y-6">
+                <label class="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-6 italic">Protocolo de Partida (Pacote)</label>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     @foreach ($this->packages as $package)
-                        @php
-                            $hasBalance = $package->is_free || $this->user->wallet->hasBalance($package->cost_credits);
-                        @endphp
-                        <label
-                            class="border-2 rounded-lg p-4 transition 
-                            {{ $hasBalance ? 'cursor-pointer hover:border-blue-500' : 'opacity-50 cursor-not-allowed' }}
-                            {{ $game_package_id == $package->id ? 'border-blue-500 bg-blue-50' : 'border-gray-200' }}">
-                            <input type="radio" wire:model.live="game_package_id" value="{{ $package->id }}"
-                                class="sr-only" {{ $hasBalance ? '' : 'disabled' }}>
-                            <div class="text-center">
-                                <div class="font-semibold text-gray-900 mb-2">{{ $package->name }}</div>
-                                <div class="text-sm text-gray-600 mb-3">
+                        @php $hasBalance = $package->is_free || $this->user->wallet->hasBalance($package->cost_credits); @endphp
+                        <label class="relative group cursor-pointer">
+                            <input type="radio" wire:model.live="game_package_id" value="{{ $package->id }}" class="sr-only" {{ $hasBalance ? '' : 'disabled' }}>
+                            <div class="h-full border border-white/10 rounded-[2.5rem] p-8 transition-all relative overflow-hidden
+                                {{ !$hasBalance ? 'opacity-20 cursor-not-allowed grayscale' : 'hover:border-blue-500/50' }}
+                                {{ $game_package_id == $package->id ? 'bg-blue-600/10 border-blue-500 ring-1 ring-blue-500/50' : 'bg-[#0b0d11]' }}">
+                                
+                                <div class="font-black text-white uppercase text-xs tracking-widest mb-6 italic">{{ $package->name }}</div>
+
+                                <div class="mb-8">
                                     @if ($package->is_free)
-                                        <span class="text-green-600 font-semibold">Grátis</span>
+                                        <span class="text-emerald-500 font-black text-2xl italic tracking-tighter">FREE</span>
                                     @else
-                                        <span class="font-semibold">{{ number_format($package->cost_credits, 0) }}
-                                            créditos</span>
+                                        <span class="text-white font-black text-3xl italic tracking-tighter">{{ number_format($package->cost_credits, 0) }}</span>
+                                        <span class="text-blue-500 text-[10px] font-black ml-1 uppercase">Créditos</span>
                                     @endif
                                 </div>
-                                <div class="text-xs text-gray-500 space-y-1 text-left">
+
+                                <ul class="space-y-3">
                                     @foreach ($package->features as $feature)
-                                        <div>• {{ $feature }}</div>
+                                        <li class="text-[9px] text-slate-500 font-black uppercase flex items-center gap-2 italic">
+                                            <span class="w-1 h-1 bg-blue-500 rounded-full shadow-[0_0_5px_#3b82f6]"></span> {{ $feature }}
+                                        </li>
                                     @endforeach
-                                </div>
-                                @if (!$hasBalance)
-                                    <div class="mt-2 text-xs text-red-600 font-medium">Saldo insuficiente</div>
+                                </ul>
+
+                                @if($game_package_id == $package->id)
+                                    <div class="absolute top-6 right-6 w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_15px_#3b82f6] animate-pulse"></div>
                                 @endif
                             </div>
                         </label>
                     @endforeach
                 </div>
-                @error('game_package_id')
-                    <span class="text-red-500 text-sm">{{ $message }}</span>
-                @enderror
             </div>
 
             @if ($game_package_id && $this->selectedPackage)
-                <div class="bg-white rounded-lg shadow p-6 border">
-                    <label class="block text-sm font-medium text-gray-700 mb-4">Rodadas</label>
-                    <div>
-                        <label class="block text-sm text-gray-600 mb-2">
-                            Número de Rodadas (máx: {{ $this->selectedPackage->max_rounds }})
-                        </label>
-                        <input type="number" wire:model.live="max_rounds" min="1"
-                            max="{{ $this->selectedPackage->max_rounds }}"
-                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                        <p class="text-xs text-gray-500 mt-1">
-                            Após cada rodada, novas cartelas serão geradas automaticamente
-                        </p>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-lg shadow p-6 border">
-                    <label class="block text-sm font-medium text-gray-700 mb-4">Prêmios por Rodada</label>
-                    <input type="number" wire:model.live="prizes_per_round" min="1" max="10"
-                        class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 @error('prizes_per_round') border-red-500 @enderror">
-
-                    @error('prizes_per_round')
-                        <p class="text-red-500 text-xs mt-1">{{ $message }}</p>
-                    @enderror
-
-                    <p class="text-xs text-gray-500 mt-1">
-                        Quantos prêmios serão distribuídos em cada rodada (Total disponível: {{ count($prizes) }})
-                    </p>
-                </div>
-
-                <div class="bg-white rounded-lg shadow p-6 border">
-                    <label class="block text-sm font-medium text-gray-700 mb-4">Tamanho da Cartela</label>
-                    <div class="grid grid-cols-3 gap-4" wire:key="card-size-selector-{{ $game_package_id }}">
-                        @php
-                            $allowedSizes = $this->selectedPackage->allowed_card_sizes ?? [24];
-                        @endphp
-
-                        @foreach ([9, 15, 24] as $size)
-                            @php
-                                $isDisabled = !in_array($size, array_map('intval', $allowedSizes));
-                                $isActive = (int) $card_size === $size;
-                            @endphp
-
-                            <button type="button" wire:key="btn-size-{{ $size }}"
-                                wire:click="setCardSize({{ $size }})" {{ $isDisabled ? 'disabled' : '' }}
-                                class="border-2 rounded-lg p-4 transition text-center
-                {{ $isDisabled ? 'opacity-40 cursor-not-allowed bg-gray-50 border-gray-100' : 'cursor-pointer' }} 
-                {{ $isActive ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300' }}">
-
-                                <div class="font-bold text-2xl {{ $isActive ? 'text-blue-600' : 'text-gray-400' }}">
-                                    {{ $size }}
-                                </div>
-                                <div class="text-sm {{ $isActive ? 'text-blue-700' : 'text-gray-500' }}">números</div>
-                            </button>
-                        @endforeach
-                    </div>
-                    @error('card_size')
-                        <span class="text-red-500 text-sm mt-2 block">{{ $message }}</span>
-                    @enderror
-                </div>
-
-                <div class="bg-white rounded-lg shadow p-6 border">
-                    <label class="block text-sm font-medium text-gray-700 mb-4">Cartelas por Jogador</label>
-                    <input type="number" wire:model.live="cards_per_player" min="1" max="10"
-                        class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                    <p class="text-xs text-gray-500 mt-1">
-                        Cada jogador receberá esta quantidade de cartelas ao entrar
-                    </p>
-                    @error('cards_per_player')
-                        <span class="text-red-500 text-sm">{{ $message }}</span>
-                    @enderror
-                </div>
-
-                <div class="bg-white rounded-lg shadow p-6 border">
-                    <label class="block text-sm font-medium text-gray-700 mb-4">Controles de Visibilidade</label>
-                    <div class="space-y-4">
-                        <label class="flex items-center gap-3 cursor-pointer">
-                            <input type="checkbox" wire:model.live="show_drawn_to_players"
-                                class="w-5 h-5 text-blue-600 rounded">
-                            <div>
-                                <div class="font-medium">Mostrar números sorteados aos jogadores</div>
-                                <div class="text-sm text-gray-500">Jogadores verão os números conforme são sorteados
-                                </div>
-                            </div>
-                        </label>
-
-                        <label class="flex items-center gap-3 cursor-pointer">
-                            <input type="checkbox" wire:model.live="show_player_matches"
-                                class="w-5 h-5 text-blue-600 rounded">
-                            <div>
-                                <div class="font-medium">Destacar números correspondentes</div>
-                                <div class="text-sm text-gray-500">Círculo amarelo nos números que o jogador possui
-                                </div>
-                            </div>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-lg shadow p-6 border">
-                    <label class="block text-sm font-medium text-gray-700 mb-4">Modo de Sorteio</label>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <label
-                            class="border-2 rounded-lg p-4 cursor-pointer transition hover:border-blue-500 
-            {{ $draw_mode === 'manual' ? 'border-blue-500 bg-blue-50' : 'border-gray-200' }}">
-                            <input type="radio" wire:model.live="draw_mode" value="manual" name="draw_mode"
-                                class="sr-only">
-                            <div class="font-semibold mb-1">Manual</div>
-                            <div class="text-sm text-gray-600">Você controla quando cada número é sorteado</div>
-                        </label>
-
-                        <label
-                            class="border-2 rounded-lg p-4 cursor-pointer transition hover:border-blue-500 
-            {{ $draw_mode === 'automatic' ? 'border-blue-500 bg-blue-50' : 'border-gray-200' }}">
-                            <input type="radio" wire:model.live="draw_mode" value="automatic" name="draw_mode"
-                                class="sr-only">
-                            <div class="font-semibold mb-1">Automático</div>
-                            <div class="text-sm text-gray-600">Números sorteados automaticamente</div>
-                        </label>
-                    </div>
-
-                    @if ($draw_mode === 'automatic')
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in fade-in slide-in-from-bottom-6 duration-700">
+                    
+                    {{-- Parâmetros da Missão --}}
+                    <div class="bg-[#0b0d11] border border-white/10 rounded-[2.5rem] p-10 space-y-10">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-2">
-                                Intervalo entre sorteios (segundos)
-                            </label>
-                            <input type="number" wire:model.live="auto_draw_seconds" min="2" max="10"
-                                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                            @error('auto_draw_seconds')
-                                <span class="text-red-500 text-sm">{{ $message }}</span>
-                            @enderror
+                            <div class="flex items-center gap-3 mb-8">
+                                <span class="text-blue-500">🔄</span>
+                                <h3 class="text-[11px] font-black text-white uppercase tracking-[0.2em] italic">Configuração de Fluxo</h3>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-8">
+                                <div>
+                                    <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3 block italic">Rodadas Máx.</label>
+                                    <input type="number" wire:model.live="max_rounds" min="1" max="{{ $this->selectedPackage->max_rounds }}"
+                                        class="w-full bg-white/5 border border-white/5 rounded-2xl py-4 text-center font-black text-white text-xl focus:border-blue-500/50 focus:ring-0 transition-all">
+                                </div>
+                                <div>
+                                    <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3 block italic">Prêmios / Rodada</label>
+                                    <input type="number" wire:model.live="prizes_per_round" min="1" max="10"
+                                        class="w-full bg-white/5 border border-white/5 rounded-2xl py-4 text-center font-black text-white text-xl focus:border-blue-500/50 focus:ring-0 transition-all">
+                                </div>
+                            </div>
                         </div>
-                    @endif
+
+                        <div class="space-y-4 pt-6 border-t border-white/5">
+                            <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest block italic mb-2">Interface do Jogador</label>
+                            <label class="flex items-center justify-between p-5 bg-white/[0.02] border border-white/5 rounded-2xl cursor-pointer group hover:bg-white/5 transition-all">
+                                <div>
+                                    <div class="text-[10px] font-black text-white uppercase italic">Números Sorteados</div>
+                                    <div class="text-[8px] font-bold text-slate-600 uppercase mt-1">Visibilidade Global</div>
+                                </div>
+                                <input type="checkbox" wire:model.live="show_drawn_to_players" class="w-6 h-6 bg-[#05070a] border-white/10 rounded-lg text-blue-600 focus:ring-0">
+                            </label>
+                        </div>
+                    </div>
+
+                    {{-- Geometria e Sorteio --}}
+                    <div class="space-y-8">
+                        {{-- Tamanho da Cartela --}}
+                        <div class="bg-[#0b0d11] border border-white/10 rounded-[2.5rem] p-10">
+                            <div class="flex items-center gap-3 mb-8">
+                                <span class="text-blue-500">📏</span>
+                                <h3 class="text-[11px] font-black text-white uppercase tracking-[0.2em] italic">Geometria da Cartela</h3>
+                            </div>
+                            <div class="grid grid-cols-3 gap-4">
+                                @foreach ([9, 15, 24] as $size)
+                                    @php $allowed = in_array($size, array_map('intval', $this->selectedPackage->allowed_card_sizes ?? [24])); @endphp
+                                    <button type="button" wire:click="setCardSize({{ $size }})" {{ !$allowed ? 'disabled' : '' }}
+                                        class="py-6 rounded-2xl border transition-all flex flex-col items-center
+                                        {{ !$allowed ? 'opacity-10 grayscale' : 'hover:scale-105 active:scale-95' }}
+                                        {{ (int)$card_size === $size ? 'border-blue-500 bg-blue-500/10' : 'border-white/10 bg-white/5' }}">
+                                        <div class="text-3xl font-black italic tracking-tighter {{ (int)$card_size === $size ? 'text-white' : 'text-slate-600' }}">{{ $size }}</div>
+                                        <div class="text-[8px] font-black uppercase mt-1 {{ (int)$card_size === $size ? 'text-blue-500' : 'text-slate-700' }}">Slots</div>
+                                    </button>
+                                @endforeach
+                            </div>
+                        </div>
+
+                        {{-- Modo de Sorteio --}}
+                        <div class="bg-[#0b0d11] border border-white/10 rounded-[2.5rem] p-10">
+                            <div class="flex items-center gap-3 mb-8">
+                                <span class="text-blue-500">⚡</span>
+                                <h3 class="text-[11px] font-black text-white uppercase tracking-[0.2em] italic">Módulo de Sorteio</h3>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <button type="button" wire:click="$set('draw_mode', 'manual')"
+                                    class="p-5 rounded-2xl border transition-all {{ $draw_mode === 'manual' ? 'border-blue-500 bg-blue-500/10 text-white' : 'border-white/10 bg-white/5 text-slate-500' }}">
+                                    <span class="text-[10px] font-black uppercase italic">Manual</span>
+                                </button>
+                                <button type="button" wire:click="$set('draw_mode', 'automatic')"
+                                    class="p-5 rounded-2xl border transition-all {{ $draw_mode === 'automatic' ? 'border-blue-500 bg-blue-500/10 text-white' : 'border-white/10 bg-white/5 text-slate-500' }}">
+                                    <span class="text-[10px] font-black uppercase italic">Automático</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="bg-white rounded-lg shadow p-6 border">
-                    <div class="flex justify-between items-center mb-4">
-                        <label class="block text-sm font-medium text-gray-700">Prêmios por Rodada</label>
-                        <button type="button" wire:click="addPrize"
-                            class="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm transition">
-                            + Adicionar Prêmio
+                {{-- Manifesto de Prêmios --}}
+                <div class="bg-[#0b0d11] border border-white/10 rounded-[2.5rem] p-10">
+                    <div class="flex justify-between items-center mb-10">
+                        <div class="flex items-center gap-3">
+                            <span class="text-blue-500">🎁</span>
+                            <h3 class="text-[11px] font-black text-white uppercase tracking-[0.2em] italic">Manifesto de Prêmios</h3>
+                        </div>
+                        <button type="button" wire:click="addPrize" class="text-[10px] font-black text-blue-500 hover:text-white uppercase tracking-widest transition-colors">
+                            + Adicionar Recompensa
                         </button>
                     </div>
 
-                    <div class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         @foreach ($prizes as $index => $prize)
-                            <div class="border rounded-lg p-4">
-                                <div class="flex gap-4 items-start">
-                                    <div class="flex-1">
-                                        <input type="text" wire:model.blur="prizes.{{ $index }}.name"
-                                            placeholder="Nome do prêmio"
-                                            class="w-full px-4 py-2 border rounded-lg mb-2 focus:ring-2 focus:ring-blue-500">
-                                        @error("prizes.{$index}.name")
-                                            <span class="text-red-500 text-sm">{{ $message }}</span>
-                                        @enderror
-
-                                        <textarea wire:model.blur="prizes.{{ $index }}.description" placeholder="Descrição (opcional)" rows="2"
-                                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
-                                    </div>
-
+                            <div class="group bg-white/[0.02] border border-white/10 rounded-2xl p-6 transition-all hover:border-white/20">
+                                <div class="flex justify-between mb-4">
+                                    <span class="text-[9px] font-black text-slate-600 uppercase italic">Slot #{{ $index + 1 }}</span>
                                     @if ($index > 0)
-                                        <button type="button" wire:click="removePrize({{ $index }})"
-                                            class="text-red-600 hover:text-red-700 px-3 py-2 font-medium">
-                                            Remover
-                                        </button>
+                                        <button type="button" wire:click="removePrize({{ $index }})" class="text-red-900 group-hover:text-red-600 transition-colors text-[9px] font-black uppercase italic">Eliminar</button>
                                     @endif
                                 </div>
+                                <input type="text" wire:model.blur="prizes.{{ $index }}.name" placeholder="NOME DO ITEM"
+                                    class="w-full bg-[#05070a] border border-white/5 rounded-xl px-4 py-3 text-white text-[11px] font-black uppercase italic tracking-widest focus:border-blue-500/50 focus:ring-0 mb-3 transition-all">
+                                <textarea wire:model.blur="prizes.{{ $index }}.description" placeholder="DETALHES DA RECOMPENSA..." rows="2"
+                                    class="w-full bg-[#05070a] border border-white/5 rounded-xl px-4 py-3 text-white text-[10px] font-bold focus:border-blue-500/50 focus:ring-0 transition-all"></textarea>
                             </div>
                         @endforeach
                     </div>
                 </div>
             @endif
 
-            <div class="flex gap-4">
+            {{-- Ações Finais --}}
+            <div class="flex flex-col sm:flex-row gap-6 pt-12">
                 <button type="submit" {{ $this->canCreate ? '' : 'disabled' }}
-                    class="flex-1 px-6 py-3 rounded-lg transition font-semibold shadow
-        {{ $this->canCreate ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed' }}">
-                    <span wire:loading.remove wire:target="create">Criar Partida</span>
-                    <span wire:loading wire:target="create">Criando...</span>
+                    class="flex-[2] py-6 rounded-[2rem] font-black uppercase text-xs tracking-[0.4em] italic transition-all relative overflow-hidden group
+                    {{ $this->canCreate ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/20' : 'bg-white/5 text-slate-800 cursor-not-allowed border border-white/5' }}">
+                    <span class="relative z-10">Inicializar Protocolo Arena</span>
+                    <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
                 </button>
 
                 <a href="{{ route('games.index') }}"
-                    class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-3 rounded-lg transition font-semibold text-center">
-                    Cancelar
+                    class="flex-1 bg-transparent hover:bg-white/5 text-slate-600 hover:text-white py-6 rounded-[2rem] font-black uppercase text-xs tracking-[0.4em] italic text-center transition-all border border-white/10">
+                    Abortar
                 </a>
             </div>
         </form>

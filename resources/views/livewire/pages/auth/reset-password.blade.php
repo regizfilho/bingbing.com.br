@@ -11,7 +11,8 @@ use function Livewire\Volt\layout;
 use function Livewire\Volt\rules;
 use function Livewire\Volt\state;
 
-layout('layouts.guest');
+// Usando o layout principal para manter a atmosfera de Arena
+layout('layouts.guest'); 
 
 state('token')->locked();
 
@@ -24,15 +25,12 @@ state([
 rules([
     'token' => ['required'],
     'email' => ['required', 'string', 'email'],
-    'password' => ['required', 'string', 'confirmed', Rules\Password::defaults()],
+    'password' => ['required', 'string', 'confirmed', Rules\Password::min(8)],
 ]);
 
 $resetPassword = function () {
     $this->validate();
 
-    // Here we will attempt to reset the user's password. If it is successful we
-    // will update the password on an actual user model and persist it to the
-    // database. Otherwise we will parse the error and return the response.
     $status = Password::reset(
         $this->only('email', 'password', 'password_confirmation', 'token'),
         function ($user) {
@@ -45,53 +43,84 @@ $resetPassword = function () {
         }
     );
 
-    // If the password was successfully reset, we will redirect the user back to
-    // the application's home authenticated view. If there is an error we can
-    // redirect them back to where they came from with their error message.
     if ($status != Password::PASSWORD_RESET) {
         $this->addError('email', __($status));
-
         return;
     }
 
     Session::flash('status', __($status));
-
     $this->redirectRoute('login', navigate: true);
 };
 
 ?>
 
-<div>
-    <form wire:submit="resetPassword">
-        <!-- Email Address -->
-        <div>
-            <x-input-label for="email" :value="__('Email')" />
-            <x-text-input wire:model="email" id="email" class="block mt-1 w-full" type="email" name="email" required autofocus autocomplete="username" />
-            <x-input-error :messages="$errors->get('email')" class="mt-2" />
+<div class="w-full">
+    {{-- Título da Operação --}}
+    <div class="mb-8 text-center">
+        <h2 class="font-game text-2xl font-black text-white uppercase italic tracking-tighter">
+            Nova <span class="text-blue-500">Credencial</span>
+        </h2>
+        <p class="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em] mt-2 italic">
+            Redefinição de Segurança Obrigatória
+        </p>
+    </div>
+
+    <form wire:submit="resetPassword" class="space-y-5">
+        
+        {{-- Email (Read-only aesthetic) --}}
+        <div class="relative group">
+            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-4 mb-2 block italic">E-mail de Cadastro</label>
+            <div class="relative">
+                <span class="absolute left-5 top-1/2 -translate-y-1/2 text-slate-600 text-lg">📧</span>
+                <input wire:model="email" type="email" required
+                    class="w-full bg-[#0b0d11] border border-white/5 rounded-2xl py-4 pl-14 pr-6 text-white text-sm font-bold focus:border-blue-500/50 focus:ring-0 transition-all placeholder:text-slate-700" 
+                    placeholder="seu@email.com">
+            </div>
+            @error('email') <span class="text-[9px] font-black text-red-500 uppercase mt-1 ml-4 tracking-widest">{{ $message }}</span> @enderror
         </div>
 
-        <!-- Password -->
-        <div class="mt-4">
-            <x-input-label for="password" :value="__('Password')" />
-            <x-text-input wire:model="password" id="password" class="block mt-1 w-full" type="password" name="password" required autocomplete="new-password" />
-            <x-input-error :messages="$errors->get('password')" class="mt-2" />
+        {{-- Nova Senha --}}
+        <div class="relative group">
+            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-4 mb-2 block italic">Nova Senha</label>
+            <div class="relative">
+                <span class="absolute left-5 top-1/2 -translate-y-1/2 text-slate-600 text-lg">🔒</span>
+                <input wire:model="password" type="password" required
+                    class="w-full bg-[#0b0d11] border border-white/5 rounded-2xl py-4 pl-14 pr-6 text-white text-sm font-bold focus:border-blue-500/50 focus:ring-0 transition-all placeholder:text-slate-700"
+                    placeholder="••••••••">
+            </div>
+            @error('password') <span class="text-[9px] font-black text-red-500 uppercase mt-1 ml-4 tracking-widest">{{ $message }}</span> @enderror
         </div>
 
-        <!-- Confirm Password -->
-        <div class="mt-4">
-            <x-input-label for="password_confirmation" :value="__('Confirm Password')" />
-
-            <x-text-input wire:model="password_confirmation" id="password_confirmation" class="block mt-1 w-full"
-                          type="password"
-                          name="password_confirmation" required autocomplete="new-password" />
-
-            <x-input-error :messages="$errors->get('password_confirmation')" class="mt-2" />
+        {{-- Confirmação --}}
+        <div class="relative group">
+            <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-4 mb-2 block italic">Confirmar Nova Senha</label>
+            <div class="relative">
+                <span class="absolute left-5 top-1/2 -translate-y-1/2 text-slate-600 text-lg">🛡️</span>
+                <input wire:model="password_confirmation" type="password" required
+                    class="w-full bg-[#0b0d11] border border-white/5 rounded-2xl py-4 pl-14 pr-6 text-white text-sm font-bold focus:border-blue-500/50 focus:ring-0 transition-all placeholder:text-slate-700"
+                    placeholder="••••••••">
+            </div>
         </div>
 
-        <div class="flex items-center justify-end mt-4">
-            <x-primary-button>
-                {{ __('Reset Password') }}
-            </x-primary-button>
+        {{-- Botão de Submissão --}}
+        <div class="pt-4">
+            <button type="submit" 
+                class="group relative w-full bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-2xl transition-all duration-300 active:scale-95 shadow-xl shadow-blue-600/20 overflow-hidden">
+                <div class="relative z-10 flex items-center justify-center gap-3">
+                    <span class="font-game text-sm font-black uppercase italic tracking-widest">Atualizar Acesso</span>
+                    <span class="text-xl group-hover:translate-x-1 transition-transform">⚡</span>
+                </div>
+                
+                {{-- Efeito de brilho ao passar o mouse --}}
+                <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+            </button>
+        </div>
+
+        {{-- Link de retorno --}}
+        <div class="text-center mt-6">
+            <a href="{{ route('login') }}" wire:navigate class="text-[10px] font-black text-slate-600 hover:text-blue-500 uppercase tracking-widest italic transition-colors">
+                ← Voltar para Identificação
+            </a>
         </div>
     </form>
 </div>

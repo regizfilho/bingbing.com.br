@@ -179,145 +179,186 @@ new class extends Component {
     }
 };
 ?>
+<div>
+    <x-slot name="header">Ajustar Missão</x-slot>
 
-<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-    <div class="mb-8 flex justify-between items-center flex-wrap gap-4">
-        <div>
-            <h1 class="text-3xl font-bold text-gray-900">Editar Partida</h1>
-            <p class="text-gray-600">{{ $game->name }}</p>
-        </div>
-        <a href="{{ route('games.index') }}" class="text-gray-600 hover:text-gray-900">
-            ← Voltar
-        </a>
-    </div>
-
-    @if (session('success'))
-        <div class="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-            {{ session('success') }}
-        </div>
-    @endif
-
-    @if (session('error'))
-        <div class="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-            {{ session('error') }}
-        </div>
-    @endif
-
-    <div class="space-y-6">
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <div class="text-sm text-blue-800 font-medium mb-2">Pacote Selecionado</div>
-            <div class="text-lg font-semibold text-blue-900">{{ $game->package->name ?? '—' }}</div>
-            <div class="text-sm text-blue-700 mt-2">
-                Máx. {{ $game->package->max_players ?? '?' }} jogadores •
-                {{ $game->cards_per_player ?? '?' }} cartela(s) por jogador •
-                {{ $game->max_rounds ?? '?' }} rodada(s)
-            </div>
-        </div>
-
-        <form wire:submit="update" class="space-y-6">
-            <div class="bg-white rounded-lg shadow p-6 border">
-                <label class="block text-sm font-medium text-gray-700 mb-2">Nome da Partida</label>
-                <input type="text" wire:model.blur="name"
-                    class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                @error('name')
-                    <span class="text-red-500 text-sm">{{ $message }}</span>
-                @enderror
-            </div>
-
-            <div class="bg-white rounded-lg shadow p-6 border">
-                <label class="block text-sm font-medium text-gray-700 mb-2">Prêmios por Rodada</label>
-                <input type="number" wire:model.live="prizes_per_round" min="1"
-                    class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 @error('prizes_per_round') border-red-500 @enderror">
-                <p class="text-xs text-gray-500 mt-1">Total de prêmios cadastrados: {{ count($prizes) }}</p>
-                @error('prizes_per_round')
-                    <span class="text-red-500 text-sm">{{ $message }}</span>
-                @enderror
-            </div>
-
-            <div class="bg-white rounded-lg shadow p-6 border">
-                <label class="block text-sm font-medium text-gray-700 mb-4">Modo de Sorteio</label>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <button type="button" wire:click="setDrawMode('manual')"
-                        class="border-2 rounded-lg p-4 text-left transition
-                        {{ $draw_mode === 'manual' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-500' }}">
-                        <div class="font-semibold mb-1">Manual</div>
-                        <div class="text-sm text-gray-600">Você controla cada sorteio</div>
-                    </button>
-
-                    <button type="button" wire:click="setDrawMode('automatic')"
-                        class="border-2 rounded-lg p-4 text-left transition
-                        {{ $draw_mode === 'automatic' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-500' }}">
-                        <div class="font-semibold mb-1">Automático</div>
-                        <div class="text-sm text-gray-600">Sorteios automáticos a cada intervalo</div>
-                    </button>
+    <div class="max-w-5xl mx-auto px-4 py-12">
+        
+        {{-- Cabeçalho de Comando --}}
+        <div class="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div>
+                <div class="flex items-center gap-4 mb-3">
+                    <div class="h-[1px] w-12 bg-gradient-to-r from-blue-600 to-transparent"></div>
+                    <span class="text-blue-500/80 font-black tracking-[0.4em] uppercase text-[9px] italic">Mission Reconfiguration</span>
                 </div>
+                <h1 class="text-5xl font-black text-white tracking-tighter uppercase italic leading-none">
+                    EDITAR <span class="text-blue-500">PARTIDA</span>
+                </h1>
+                <div class="flex items-center gap-2 mt-4">
+                    <span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                    <p class="text-slate-400 text-[10px] font-black uppercase tracking-widest italic">{{ $game->name }}</p>
+                </div>
+            </div>
 
-                @if ($draw_mode === 'automatic')
-                    <div class="mt-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Intervalo (segundos)</label>
-                        <input type="number" wire:model.live="auto_draw_seconds" min="2" max="10"
-                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-                        @error('auto_draw_seconds')
-                            <span class="text-red-500 text-sm">{{ $message }}</span>
-                        @enderror
+            <a href="{{ route('games.index') }}" 
+                class="inline-flex items-center gap-4 px-6 py-3 bg-white/5 border border-white/10 rounded-2xl text-[9px] font-black uppercase tracking-[0.2em] text-slate-400 hover:text-white hover:bg-white/10 transition-all group italic">
+                <span class="group-hover:-translate-x-1 transition-transform">←</span> Voltar ao Painel
+            </a>
+        </div>
+
+        {{-- Alertas Táticos --}}
+        @if (session('success'))
+            <div class="mb-8 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-8 py-4 rounded-[1.5rem] flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                <span class="text-xl">✅</span>
+                <span class="text-[10px] font-black uppercase tracking-[0.2em] italic">{{ session('success') }}</span>
+            </div>
+        @endif
+
+        <div class="space-y-10">
+            {{-- Info do Pacote (Visual Dossiê) --}}
+            <div class="relative overflow-hidden bg-[#0b0d11] border border-white/10 rounded-[2.5rem] p-10 shadow-2xl">
+                <div class="absolute top-0 right-0 w-64 h-full bg-blue-600/[0.02] blur-3xl -rotate-12 translate-x-1/2"></div>
+                
+                <div class="relative z-10">
+                    <div class="flex items-center gap-3 mb-6">
+                        <span class="text-blue-500/50 text-xs">📁</span>
+                        <span class="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] italic">Protocolo de Operação Ativo</span>
                     </div>
-                @endif
-            </div>
 
-            <div class="bg-white rounded-lg shadow p-6 border">
-                <div class="flex justify-between items-center mb-4">
-                    <label class="block text-sm font-medium text-gray-700">Prêmios</label>
-                    <button type="button" wire:click="addPrize"
-                        class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm transition">
-                        + Adicionar Prêmio
-                    </button>
-                </div>
-
-                <div class="space-y-4">
-                    @foreach ($prizes as $index => $prize)
-                        <div class="border rounded-lg p-4" wire:key="prize-{{ $index }}">
-                            <div class="flex gap-4 items-start">
-                                <div class="flex-1">
-                                    <input type="text" wire:model.blur="prizes.{{ $index }}.name"
-                                        placeholder="Nome do prêmio" 
-                                        class="w-full px-4 py-2 border rounded-lg mb-2 focus:ring-2 focus:ring-blue-500">
-                                    @error("prizes.{$index}.name")
-                                        <span class="text-red-500 text-sm">{{ $message }}</span>
-                                    @enderror
-
-                                    <textarea wire:model.blur="prizes.{{ $index }}.description" 
-                                        placeholder="Descrição (opcional)" rows="2"
-                                        class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
-                                </div>
-
-                                @if (count($prizes) > 1)
-                                    <button type="button" wire:click="removePrize({{ $index }})"
-                                        class="text-red-600 hover:text-red-800 self-start mt-1 font-medium">
-                                        Remover
-                                    </button>
-                                @endif
+                    <div class="flex flex-col md:flex-row md:items-end justify-between gap-8">
+                        <div>
+                            <h3 class="text-3xl font-black text-white uppercase italic tracking-tighter">{{ $game->package->name ?? 'Padrão' }}</h3>
+                            <p class="text-[9px] font-bold text-slate-600 uppercase tracking-widest mt-1 italic">Este protocolo não pode ser alterado após inicialização</p>
+                        </div>
+                        
+                        <div class="grid grid-cols-3 gap-8 border-l border-white/5 pl-8">
+                            <div class="flex flex-col">
+                                <span class="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-2 italic">Capacidade</span>
+                                <span class="text-sm font-black text-white uppercase italic tracking-tighter">{{ $game->package->max_players ?? '?' }} Players</span>
+                            </div>
+                            <div class="flex flex-col border-l border-white/5 pl-8">
+                                <span class="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-2 italic">Cartelas</span>
+                                <span class="text-sm font-black text-white uppercase italic tracking-tighter">{{ $game->cards_per_player ?? '?' }} / Un</span>
+                            </div>
+                            <div class="flex flex-col border-l border-white/5 pl-8">
+                                <span class="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-2 italic">Ciclos</span>
+                                <span class="text-sm font-black text-white uppercase italic tracking-tighter">{{ $game->max_rounds ?? '?' }} Total</span>
                             </div>
                         </div>
-                    @endforeach
+                    </div>
                 </div>
             </div>
 
-            <div class="flex flex-col sm:flex-row gap-4">
-                <button type="submit"
-                    class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition font-semibold">
-                    Salvar Alterações
-                </button>
+            <form wire:submit="update" class="space-y-10">
+                {{-- Configuração Básica --}}
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div class="space-y-4">
+                        <label class="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-6 italic">Nome da Partida</label>
+                        <input type="text" wire:model.blur="name"
+                            class="w-full bg-[#0b0d11] border border-white/10 rounded-[2rem] px-8 py-5 text-white font-black uppercase italic tracking-widest focus:border-blue-500/50 focus:ring-0 transition-all">
+                        @error('name') <span class="text-red-500 text-[10px] font-black uppercase ml-6 tracking-widest italic">{{ $message }}</span> @enderror
+                    </div>
 
-                <button type="button" wire:click="publish"
-                    class="flex-1 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition font-semibold">
-                    Publicar Partida
-                </button>
+                    <div class="space-y-4">
+                        <label class="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] ml-6 italic">Prêmios / Ciclo</label>
+                        <div class="relative group">
+                            <input type="number" wire:model.live="prizes_per_round" min="1"
+                                class="w-full bg-[#0b0d11] border border-white/10 rounded-[2rem] px-8 py-5 text-white font-black text-2xl italic tracking-tighter focus:border-blue-500/50 focus:ring-0 transition-all">
+                            <div class="absolute right-6 top-1/2 -translate-y-1/2 text-right">
+                                <div class="text-[8px] font-black text-slate-600 uppercase italic">Total</div>
+                                <div class="text-lg font-black text-blue-500 italic leading-none">{{ count($prizes) }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
-                <a href="{{ route('games.index') }}"
-                    class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-3 rounded-lg transition font-semibold text-center">
-                    Cancelar
-                </a>
-            </div>
-        </form>
+                {{-- Módulo de Sorteio --}}
+                <div class="bg-[#0b0d11] border border-white/10 rounded-[2.5rem] p-10 shadow-2xl">
+                    <label class="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em] mb-8 block italic">Módulo de Sorteio</label>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <button type="button" wire:click="setDrawMode('manual')"
+                            class="relative p-6 rounded-2xl border transition-all flex items-center gap-4
+                            {{ $draw_mode === 'manual' ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.1)]' : 'border-white/10 bg-white/5 grayscale' }}">
+                            <span class="text-2xl">{{ $draw_mode === 'manual' ? '🕹️' : '⚪' }}</span>
+                            <div class="text-left">
+                                <div class="text-[11px] font-black uppercase italic {{ $draw_mode === 'manual' ? 'text-white' : 'text-slate-500' }}">Manual Command</div>
+                                <div class="text-[9px] font-bold text-slate-600 uppercase mt-1 italic tracking-widest">Controle Tático Host</div>
+                            </div>
+                        </button>
+
+                        <button type="button" wire:click="setDrawMode('automatic')"
+                            class="relative p-6 rounded-2xl border transition-all flex items-center gap-4
+                            {{ $draw_mode === 'automatic' ? 'border-blue-500 bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.1)]' : 'border-white/10 bg-white/5 grayscale' }}">
+                            <span class="text-2xl">{{ $draw_mode === 'automatic' ? '⚡' : '⚪' }}</span>
+                            <div class="text-left">
+                                <div class="text-[11px] font-black uppercase italic {{ $draw_mode === 'automatic' ? 'text-white' : 'text-slate-500' }}">Auto Engine</div>
+                                <div class="text-[9px] font-bold text-slate-600 uppercase mt-1 italic tracking-widest">Sorteio Automatizado</div>
+                            </div>
+                        </button>
+                    </div>
+
+                    @if ($draw_mode === 'automatic')
+                        <div class="mt-10 pt-10 border-t border-white/5 animate-in zoom-in duration-300">
+                            <div class="flex justify-between items-center mb-6">
+                                <label class="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em] italic">Intervalo de Varredura</label>
+                                <span class="bg-blue-600 text-white px-5 py-1.5 rounded-xl font-black text-[10px] shadow-lg shadow-blue-600/30 tracking-widest">{{ $auto_draw_seconds }} SEG</span>
+                            </div>
+                            <input type="range" wire:model.live="auto_draw_seconds" min="2" max="10" step="1"
+                                class="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                        </div>
+                    @endif
+                </div>
+
+                {{-- Gestão de Prêmios --}}
+                <div class="bg-[#0b0d11] border border-white/10 rounded-[2.5rem] p-10 shadow-2xl">
+                    <div class="flex justify-between items-center mb-10">
+                        <div class="flex items-center gap-3">
+                            <span class="text-blue-500">🎁</span>
+                            <h3 class="text-[11px] font-black text-white uppercase tracking-[0.2em] italic">Manifesto de Recompensas</h3>
+                        </div>
+                        <button type="button" wire:click="addPrize" class="text-[10px] font-black text-blue-500 hover:text-white uppercase tracking-[0.2em] italic transition-colors">
+                            + Nova Recompensa
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        @foreach ($prizes as $index => $prize)
+                            <div class="group bg-white/[0.02] border border-white/10 rounded-2xl p-6 transition-all hover:border-white/20" wire:key="prize-{{ $index }}">
+                                <div class="flex justify-between mb-4">
+                                    <span class="text-[9px] font-black text-slate-600 uppercase italic">Slot #{{ $index + 1 }}</span>
+                                    @if (count($prizes) > 1)
+                                        <button type="button" wire:click="removePrize({{ $index }})" class="text-red-900 group-hover:text-red-500 transition-colors text-[9px] font-black uppercase italic tracking-widest">Eliminar</button>
+                                    @endif
+                                </div>
+                                <input type="text" wire:model.blur="prizes.{{ $index }}.name" placeholder="NOME DO ITEM"
+                                    class="w-full bg-[#05070a] border border-white/5 rounded-xl px-4 py-3 text-white text-[11px] font-black uppercase italic tracking-widest focus:border-blue-500/50 focus:ring-0 mb-3 transition-all">
+                                <textarea wire:model.blur="prizes.{{ $index }}.description" placeholder="DETALHES DA RECOMPENSA..." rows="2"
+                                    class="w-full bg-[#05070a] border border-white/5 rounded-xl px-4 py-3 text-white text-[10px] font-bold focus:border-blue-500/50 focus:ring-0 transition-all"></textarea>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+
+                {{-- Ações de Comando --}}
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-12">
+                    <button type="submit"
+                        class="group relative bg-blue-600 hover:bg-blue-500 text-white py-6 rounded-[2rem] font-black uppercase text-[11px] tracking-[0.3em] italic transition-all shadow-2xl shadow-blue-600/20 overflow-hidden">
+                        <span class="relative z-10">Atualizar Missão</span>
+                        <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                    </button>
+
+                    <button type="button" wire:click="publish"
+                        class="group relative bg-emerald-600 hover:bg-emerald-500 text-white py-6 rounded-[2rem] font-black uppercase text-[11px] tracking-[0.3em] italic transition-all shadow-2xl shadow-emerald-600/20 overflow-hidden">
+                        <span class="relative z-10">🚀 Publicar Arena</span>
+                        <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+                    </button>
+
+                    <a href="{{ route('games.index') }}"
+                        class="bg-transparent hover:bg-white/5 text-slate-600 hover:text-white py-6 rounded-[2rem] font-black uppercase text-[11px] tracking-[0.3em] italic text-center transition-all border border-white/10">
+                        Cancelar
+                    </a>
+                </div>
+            </form>
+        </div>
     </div>
 </div>

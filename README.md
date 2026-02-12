@@ -948,3 +948,7 @@ Para dúvidas ou problemas:
 ✅ **Guia de instalação** detalhado  
 ✅ **Configurações** explicadas  
 ✅ **Roadmap** de próximas features
+
+
+---
+Adicionar botão de bingo

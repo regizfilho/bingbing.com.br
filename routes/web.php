@@ -3,7 +3,7 @@
 use App\Livewire\Display\GameDisplay;
 use Illuminate\Support\Facades\Route;
 
-Route::view('/', 'welcome');
+Route::view('/', 'leading');
 
 Route::middleware(['auth'])->group(function () {
     Route::livewire('/dashboard', 'pages::dashboard.index')->name('dashboard');

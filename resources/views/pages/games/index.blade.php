@@ -81,178 +81,199 @@ new class extends Component {
     }
 };
 ?>
-
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-    {{-- Header --}}
-    <div class="mb-8 flex justify-between items-center flex-wrap gap-4">
+<div class="max-w-7xl mx-auto px-4 py-12">
+    
+    {{-- Header de Comando --}}
+    <div class="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-8">
         <div>
-            <h1 class="text-3xl font-bold text-gray-900">Minhas Partidas</h1>
-            <p class="text-gray-600">Gerencie e acompanhe os resultados dos seus bingos</p>
+            <div class="flex items-center gap-4 mb-4">
+                <div class="h-[1px] w-12 bg-gradient-to-r from-blue-600 to-transparent"></div>
+                <span class="text-blue-500/80 font-black tracking-[0.4em] uppercase text-[9px] italic">Host Dashboard</span>
+            </div>
+            <h1 class="text-5xl font-black text-white tracking-tighter uppercase italic leading-none">
+                MINHAS <span class="text-blue-500 text-glow-blue">PARTIDAS</span>
+            </h1>
         </div>
+        
         <a href="{{ route('games.create') }}"
-            class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition font-semibold shadow-md">
-            + Nova Partida
+            class="group relative inline-flex items-center gap-4 bg-blue-600 hover:bg-blue-500 text-white px-10 py-5 rounded-[2rem] transition-all font-black uppercase text-[11px] tracking-[0.3em] italic shadow-2xl shadow-blue-600/20 overflow-hidden">
+            <span class="relative z-10 flex items-center gap-3">
+                <span class="text-lg group-hover:rotate-90 transition-transform duration-500">+</span> 
+                Nova Partida
+            </span>
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
         </a>
     </div>
 
-    {{-- Filtros --}}
-    <div class="mb-6 flex gap-2 flex-wrap">
-        @foreach(['all' => 'Todas', 'draft' => 'Rascunho', 'waiting' => 'Aguardando', 'active' => 'Ativas', 'finished' => 'Finalizadas'] as $key => $label)
+    {{-- Filtros HUD (Fita tática) --}}
+    <div class="mb-10 flex gap-3 overflow-x-auto pb-6 no-scrollbar">
+        @foreach(['all' => 'Todas', 'draft' => 'Rascunhos', 'waiting' => 'Aguardando', 'active' => 'Ativas', 'finished' => 'Finalizadas'] as $key => $label)
             <button wire:click="setStatus('{{ $key }}')"
-                class="px-4 py-2 rounded-lg transition font-medium border
-                {{ $statusFilter === $key ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-300' }}">
+                class="px-6 py-2.5 rounded-2xl transition-all font-black uppercase text-[9px] tracking-[0.2em] border italic whitespace-nowrap
+                {{ $statusFilter === $key 
+                    ? 'bg-blue-600/10 border-blue-500 text-white shadow-[0_0_20px_rgba(59,130,246,0.15)] ring-1 ring-blue-500/50' 
+                    : 'bg-[#0b0d11] text-slate-600 border-white/5 hover:text-white hover:border-white/20' }}">
                 {{ $label }}
             </button>
         @endforeach
     </div>
 
-    {{-- Listagem --}}
-    <div class="bg-white rounded-xl shadow-sm overflow-hidden border">
+    {{-- Listagem de Dossiês --}}
+    <div class="space-y-8">
         @php $currentGames = $this->games(); @endphp
         
-        @if ($currentGames->count() > 0)
-            <div class="divide-y">
-                @foreach ($currentGames as $game)
-                    <div class="p-6 hover:bg-gray-50/50 transition" wire:key="game-{{ $game->uuid }}">
-                        <div class="flex flex-col lg:flex-row justify-between lg:items-center gap-4">
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center gap-3 mb-2 flex-wrap">
-                                    <h3 class="text-lg font-bold text-gray-900 truncate">{{ $game->name }}</h3>
-                                    <span class="px-3 py-1 text-xs rounded-full font-bold uppercase tracking-wider
-                                        @if ($game->status === 'active') bg-green-100 text-green-800
-                                        @elseif($game->status === 'waiting') bg-yellow-100 text-yellow-800
-                                        @elseif($game->status === 'finished') bg-gray-100 text-gray-800
-                                        @else bg-blue-100 text-blue-800 @endif">
-                                        {{ $game->status }}
-                                    </span>
-                                </div>
+        @forelse ($currentGames as $game)
+            <div class="group relative bg-[#0b0d11] border border-white/10 rounded-[2.5rem] p-8 sm:p-10 hover:border-blue-500/40 transition-all duration-500 shadow-2xl overflow-hidden" wire:key="game-{{ $game->uuid }}">
+                
+                {{-- LED Lateral de Status --}}
+                <div class="absolute left-0 top-0 w-1 h-full 
+                    @if ($game->status === 'active') bg-emerald-500 shadow-[2px_0_15px_rgba(16,185,129,0.4)]
+                    @elseif($game->status === 'waiting') bg-amber-500 shadow-[2px_0_15px_rgba(245,158,11,0.4)]
+                    @elseif($game->status === 'finished') bg-slate-800
+                    @else bg-blue-600 shadow-[2px_0_15px_rgba(37,99,235,0.4)] @endif">
+                </div>
 
-                                <div class="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-2 text-sm text-gray-600">
-                                    <div class="flex items-center gap-1">
-                                        <span class="text-gray-400">Pacote:</span> {{ $game->package->name }}
-                                    </div>
-                                    <div class="flex items-center gap-1">
-                                        <span class="text-gray-400">Código:</span> <span class="font-mono font-bold text-blue-600">{{ $game->invite_code }}</span>
-                                    </div>
-                                    <div class="flex items-center gap-1">
-                                        <span class="text-gray-400">Jogadores:</span> {{ $game->players->count() }}
-                                    </div>
-                                    <div class="flex items-center gap-1">
-                                        <span class="text-gray-400">Data:</span> {{ $game->created_at->format('d/m/Y') }}
-                                    </div>
-                                </div>
+                <div class="flex flex-col lg:flex-row justify-between lg:items-center gap-10 relative z-10">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-4 mb-6 flex-wrap">
+                            <h3 class="text-2xl sm:text-3xl font-black text-white italic tracking-tighter uppercase group-hover:text-blue-400 transition-colors">
+                                {{ $game->name }}
+                            </h3>
+                            <div class="flex items-center gap-2 px-4 py-1.5 rounded-full border bg-black/40
+                                @if ($game->status === 'active') border-emerald-500/30 text-emerald-500
+                                @elseif($game->status === 'waiting') border-amber-500/30 text-amber-500
+                                @elseif($game->status === 'finished') border-white/10 text-slate-500
+                                @else border-blue-500/30 text-blue-500 @endif">
+                                <span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                                <span class="text-[9px] font-black uppercase tracking-[0.2em] italic">{{ $game->status }}</span>
                             </div>
+                        </div>
 
-                            <div class="flex gap-2 flex-wrap">
-                                {{-- Botão Ranking corrigido para checarWinners --}}
-                                @if ($game->winners()->exists())
-                                    <button wire:click="openRankingModal('{{ $game->uuid }}')"
-                                        class="flex-1 lg:flex-none bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition text-sm font-bold shadow-sm">
-                                        🏆 Ranking
-                                    </button>
-                                @endif
-
-                                @if ($game->status === 'draft')
-                                    <a href="{{ route('games.edit', $game) }}"
-                                        class="flex-1 lg:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition text-sm font-bold text-center">
-                                        Editar
-                                    </a>
-                                @endif
-
-                                @if ($game->status !== 'draft')
-                                    <a href="{{ route('games.play', $game) }}"
-                                        class="flex-1 lg:flex-none bg-gray-800 hover:bg-black text-white px-4 py-2 rounded-lg transition text-sm font-bold text-center">
-                                        Gerenciar
-                                    </a>
-                                @endif
+                        {{-- Grade Técnica --}}
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-8">
+                            <div class="space-y-1">
+                                <span class="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic">Pacote Ativo</span>
+                                <div class="text-[11px] font-black text-white uppercase italic tracking-widest">{{ $game->package->name }}</div>
+                            </div>
+                            <div class="space-y-1 border-l border-white/5 pl-8">
+                                <span class="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic">Código Convite</span>
+                                <div class="text-[11px] font-black text-blue-500 font-mono tracking-[0.3em]">{{ $game->invite_code }}</div>
+                            </div>
+                            <div class="space-y-1 border-l border-white/5 pl-8">
+                                <span class="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic">Operativos</span>
+                                <div class="text-[11px] font-black text-white uppercase italic tracking-widest">{{ $game->players->count() }} Ativos</div>
+                            </div>
+                            <div class="space-y-1 border-l border-white/5 pl-8">
+                                <span class="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic">Data Inicial</span>
+                                <div class="text-[11px] font-black text-white uppercase italic tracking-widest">{{ $game->created_at->format('d/m/Y') }}</div>
                             </div>
                         </div>
                     </div>
-                @endforeach
-            </div>
 
-            @if ($currentGames->hasPages())
-                <div class="px-6 py-4 border-t bg-gray-50">
-                    {{ $currentGames->links() }}
+                    {{-- Botões de Comando --}}
+                    <div class="flex items-center gap-4 flex-wrap">
+                        @if ($game->winners()->exists())
+                            <button wire:click="openRankingModal('{{ $game->uuid }}')"
+                                class="flex-1 lg:flex-none bg-amber-500/5 hover:bg-amber-500 border border-amber-500/20 text-amber-500 hover:text-white px-8 py-4 rounded-2xl transition-all text-[10px] font-black uppercase tracking-[0.2em] italic">
+                                🏆 Ranking
+                            </button>
+                        @endif
+
+                        @if ($game->status === 'draft')
+                            <a href="{{ route('games.edit', $game) }}"
+                                class="flex-1 lg:flex-none bg-blue-600/5 hover:bg-blue-600 border border-blue-600/20 text-blue-400 hover:text-white px-8 py-4 rounded-2xl transition-all text-[10px] font-black uppercase tracking-[0.2em] italic text-center">
+                                Reconfigurar
+                            </a>
+                        @endif
+
+                        @if ($game->status !== 'draft')
+                            <a href="{{ route('games.play', $game) }}"
+                                class="flex-1 lg:flex-none bg-white hover:bg-white/90 text-black px-10 py-4 rounded-2xl transition-all text-[10px] font-black uppercase tracking-[0.2em] italic text-center shadow-xl shadow-white/5">
+                                Gerenciar Arena
+                            </a>
+                        @endif
+                    </div>
                 </div>
-            @endif
-        @else
-            <div class="text-center py-20">
-                <div class="text-4xl mb-4">📭</div>
-                <h3 class="text-lg font-bold text-gray-900">Nenhuma partida por aqui</h3>
-                <p class="text-gray-500 max-w-xs mx-auto mt-2">
-                    {{ $statusFilter === 'all' ? 'Você ainda não criou nenhuma partida.' : 'Não encontramos partidas com o status selecionado.' }}
+                
+                {{-- Background Watermark --}}
+                <div class="absolute -right-6 -bottom-8 text-white/[0.02] font-black text-[12rem] italic pointer-events-none select-none tracking-tighter">
+                    {{ str_pad($loop->iteration, 2, '0', STR_PAD_LEFT) }}
+                </div>
+            </div>
+        @empty
+            <div class="bg-[#0b0d11] border border-white/5 border-dashed rounded-[3rem] py-32 text-center">
+                <div class="text-6xl mb-8 opacity-20 grayscale">📂</div>
+                <h3 class="text-2xl font-black text-white uppercase italic tracking-tighter">Arquivo de Missões Vazio</h3>
+                <p class="text-slate-600 text-[10px] font-black uppercase tracking-[0.3em] mt-3 italic">
+                    Nenhum protocolo detectado no banco de dados central.
                 </p>
+                <div class="mt-12">
+                    <a href="{{ route('games.create') }}" class="text-blue-500 text-[10px] font-black uppercase tracking-[0.3em] hover:text-white transition-colors flex items-center justify-center gap-3 italic">
+                        Inicializar Primeira Missão <span class="animate-bounce-x">→</span>
+                    </a>
+                </div>
+            </div>
+        @endforelse
+
+        @if ($currentGames->hasPages())
+            <div class="pt-10 flex justify-center">
+                {{ $currentGames->links() }}
             </div>
         @endif
     </div>
 
-    {{-- Modal de Ranking Consolidado --}}
+    {{-- Modal Hall da Vitória (Refinado) --}}
     @if ($showRankingModal && $selectedGame)
-        <div class="fixed inset-0 bg-gray-900/75 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+        <div class="fixed inset-0 bg-[#05070a]/95 backdrop-blur-2xl flex items-center justify-center z-[200] p-6"
             wire:click="closeRankingModal">
-            <div class="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col"
+            <div class="bg-[#0b0d11] border border-white/10 rounded-[3rem] shadow-3xl max-w-3xl w-full max-h-[85vh] flex flex-col relative overflow-hidden"
                 wire:click.stop>
                 
-                <div class="px-8 py-6 border-b flex justify-between items-center bg-gray-50 rounded-t-2xl">
+                <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 via-amber-500 to-blue-600"></div>
+
+                <div class="px-12 py-10 border-b border-white/5 flex justify-between items-center bg-white/[0.01]">
                     <div>
-                        <h2 class="text-2xl font-black text-gray-900 tracking-tight">RANKING FINAL</h2>
-                        <p class="text-sm font-medium text-blue-600">{{ $selectedGame->name }} • Total de Ganhadores</p>
+                        <h2 class="text-4xl font-black text-white tracking-tighter italic uppercase leading-none">HALL DA <span class="text-amber-500">VITÓRIA</span></h2>
+                        <div class="flex items-center gap-3 mt-3">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            <p class="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] italic">{{ $selectedGame->name }} / Dossiê Final</p>
+                        </div>
                     </div>
-                    <button wire:click="closeRankingModal" class="text-gray-400 hover:text-gray-600 text-2xl">
+                    <button wire:click="closeRankingModal" class="text-slate-500 hover:text-white transition-colors text-4xl font-light leading-none">
                         &times;
                     </button>
                 </div>
 
-                <div class="p-8 overflow-y-auto flex-1">
-                    <div class="space-y-4">
-                        @foreach ($gameRanking as $index => $data)
-                            <div class="relative overflow-hidden border rounded-xl p-5 flex items-center gap-6 
-                                {{ $index === 0 ? 'bg-amber-50 border-amber-200 shadow-sm' : 'bg-white border-gray-100' }}">
-                                
-                                <div class="w-12 text-center flex-shrink-0">
-                                    @if($index === 0) <span class="text-4xl">🥇</span>
-                                    @elseif($index === 1) <span class="text-4xl">🥈</span>
-                                    @elseif($index === 2) <span class="text-4xl">🥉</span>
-                                    @else <span class="text-xl font-bold text-gray-400">#{{ $index + 1 }}</span>
-                                    @endif
-                                </div>
+                <div class="p-12 overflow-y-auto flex-1 space-y-8 no-scrollbar">
+                    @foreach ($gameRanking as $index => $data)
+                        <div class="bg-white/[0.02] border border-white/5 rounded-[2rem] p-8 flex items-center gap-10 transition-all hover:bg-white/[0.04]">
+                            
+                            <div class="w-16 text-center flex-shrink-0">
+                                @if($index === 0) <span class="text-6xl drop-shadow-[0_0_15px_rgba(245,158,11,0.5)]">🥇</span>
+                                @elseif($index === 1) <span class="text-5xl">🥈</span>
+                                @elseif($index === 2) <span class="text-5xl">🥉</span>
+                                @else <span class="text-2xl font-black text-slate-800 italic">#{{ $index + 1 }}</span>
+                                @endif
+                            </div>
 
-                                <div class="flex-1">
-                                    <div class="flex justify-between items-start">
-                                        <div>
-                                            <h4 class="font-bold text-lg text-gray-900">{{ $data['user']->name }}</h4>
-                                            <p class="text-[10px] text-gray-500 uppercase font-black tracking-widest mt-1">
-                                                {{ $data['wins'] }} Vitórias {{ $data['wins'] > 1 ? 'acumuladas' : '' }}
-                                            </p>
-                                        </div>
-                                        <div class="text-right">
-                                            <div class="text-[10px] text-gray-400 font-bold uppercase">Nas Rodadas</div>
-                                            <div class="text-xs font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full inline-block">
-                                                {{ implode(', ', array_unique($data['rounds'])) }}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div class="mt-4 flex flex-wrap gap-2">
-                                        @foreach ($data['prizes'] as $prizeName)
-                                            @php $isHonra = str_contains($prizeName, 'Mérito') || str_contains($prizeName, '✨'); @endphp
-                                            <span class="px-3 py-1 border rounded-lg text-[10px] font-black uppercase shadow-sm flex items-center gap-1
-                                                {{ $isHonra ? 'bg-slate-50 border-slate-200 text-slate-500' : 'bg-white border-amber-200 text-amber-700' }}">
-                                                {{ $isHonra ? '🏅' : '🎁' }} {{ $prizeName }}
-                                            </span>
-                                        @endforeach
-                                    </div>
+                            <div class="flex-1 min-w-0">
+                                <h4 class="font-black text-xl text-white uppercase italic tracking-tighter mb-4">{{ $data['user']->name }}</h4>
+                                <div class="flex flex-wrap gap-3">
+                                    @foreach ($data['prizes'] as $prizeName)
+                                        <span class="px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border border-amber-500/20 bg-amber-500/10 text-amber-500 italic">
+                                            🎁 {{ $prizeName }}
+                                        </span>
+                                    @endforeach
                                 </div>
                             </div>
-                        @endforeach
-                    </div>
+                        </div>
+                    @endforeach
                 </div>
 
-                <div class="p-6 border-t bg-gray-50 rounded-b-2xl">
+                <div class="p-10 border-t border-white/5">
                     <button wire:click="closeRankingModal"
-                        class="w-full bg-gray-900 hover:bg-black text-white py-4 rounded-xl font-bold transition shadow-lg">
-                        FECHAR RESULTADOS
+                        class="w-full bg-[#0b0d11] hover:bg-white text-slate-600 hover:text-black py-6 rounded-[2rem] font-black uppercase text-xs tracking-[0.4em] italic transition-all border border-white/10">
+                        ENCERRAR RELATÓRIO
                     </button>
                 </div>
             </div>
