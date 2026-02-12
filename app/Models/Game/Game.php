@@ -13,37 +13,37 @@ class Game extends Model
 {
     use HasUuids;
 
-    protected $fillable = [
-        'uuid',
-        'creator_id',
-        'game_package_id',
-        'name',
-        'invite_code',
-        'draw_mode',
-        'auto_draw_seconds',
-        'card_size',
-        'show_drawn_to_players',
-        'show_player_matches',
-        'cards_per_player',
-        'prizes_per_round',
-        'max_rounds',
-        'current_round',
-        'status',
-        'started_at',
-        'finished_at',
-    ];
+    // app/Models/Game/Game.php
 
-    protected $casts = [
-        'show_drawn_to_players' => 'boolean',
-        'show_player_matches' => 'boolean',
-        'started_at' => 'datetime',
-        'finished_at' => 'datetime',
-        'current_round' => 'integer',
-        'max_rounds' => 'integer',
-        'card_size' => 'integer',
-        'cards_per_player' => 'integer',
-        'prizes_per_round' => 'integer',
-    ];
+protected $fillable = [
+    'uuid',
+    'creator_id',
+    'game_package_id',
+    'name',
+    'invite_code',
+    'draw_mode',
+    'auto_draw_seconds',
+    'status',
+    'started_at',
+    'finished_at',
+    // ADICIONE ESTES:
+    'card_size',
+    'cards_per_player',
+    'prizes_per_round',
+    'max_rounds',
+    'current_round',
+    'show_drawn_to_players',
+    'show_player_matches',
+    'auto_claim_prizes',
+];
+
+protected $casts = [
+    'show_drawn_to_players' => 'boolean',
+    'show_player_matches' => 'boolean',
+    'auto_claim_prizes' => 'boolean',
+    'started_at' => 'datetime',
+    'finished_at' => 'datetime',
+];
 
     protected $attributes = [
         'current_round' => 1,

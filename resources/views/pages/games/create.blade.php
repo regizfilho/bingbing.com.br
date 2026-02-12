@@ -27,9 +27,9 @@ new class extends Component {
     #[Validate('required|integer|min:1|max:10')]
     public int $cards_per_player = 1;
 
-    public bool $show_drawn_to_players = true;
-    public bool $show_player_matches = true;
-    public bool $auto_claim_prizes = true;
+    public bool $show_drawn_to_players = false;
+    public bool $show_player_matches = false;
+    public bool $auto_claim_prizes = false;
 
     #[Validate('required|integer|min:1')]
     public int $max_rounds = 1;
@@ -93,6 +93,11 @@ new class extends Component {
                 ['temp_id' => Str::random(8), 'name' => '3º Prêmio', 'description' => '']
             ];
         }
+        
+        // Valores padrão do pacote quando selecionado
+        if ($this->selectedPackage) {
+            $this->loadPackageDefaults();
+        }
     }
 
     public function setCardSize($size): void
@@ -109,14 +114,31 @@ new class extends Component {
         }
     }
 
+    private function loadPackageDefaults(): void
+{
+    if ($package = $this->selectedPackage) {
+        $this->max_rounds = (int) $package->max_rounds;
+        $this->cards_per_player = (int) ($package->cards_per_player ?? 1);
+        
+        // Limitar ao máximo permitido pelo pacote
+        $maxCards = $package->max_cards_per_player ?? 10;
+        if ($this->cards_per_player > $maxCards) {
+            $this->cards_per_player = $maxCards;
+        }
+        
+        $allowed = !empty($package->allowed_card_sizes) 
+            ? array_map('intval', (array)$package->allowed_card_sizes) 
+            : [9, 15, 24];
+            
+        if (!in_array((int)$this->card_size, $allowed)) {
+            $this->card_size = (int)$allowed[0];
+        }
+    }
+}
+
     public function updatedGamePackageId(): void
     {
-        if ($package = $this->selectedPackage) {
-            $this->max_rounds = (int) $package->max_rounds;
-            $this->cards_per_player = (int) ($package->cards_per_player ?? 1);
-            $allowed = !empty($package->allowed_card_sizes) ? array_map('intval', (array)$package->allowed_card_sizes) : [9, 15, 24];
-            if (!in_array((int)$this->card_size, $allowed)) $this->card_size = (int)$allowed[0];
-        }
+        $this->loadPackageDefaults();
     }
 
     public function addPrize(): void
@@ -126,18 +148,18 @@ new class extends Component {
     }
 
     public function removePrize(int $index): void
-{
-    if (count($this->prizes) > 1) {
-        array_splice($this->prizes, $index, 1);
-        
-        if ($this->prizes_per_round > count($this->prizes)) {
-            $this->prizes_per_round = count($this->prizes);
+    {
+        if (count($this->prizes) > 1) {
+            array_splice($this->prizes, $index, 1);
+            
+            if ($this->prizes_per_round > count($this->prizes)) {
+                $this->prizes_per_round = count($this->prizes);
+            }
+            
+            $this->resetValidation();
+            $this->dispatch('notify', type: 'info', text: 'Slot removido.');
         }
-        
-        $this->resetValidation();
-        $this->dispatch('notify', type: 'info', text: 'Slot removido.');
     }
-}
 
     public function create(): void
     {
@@ -163,7 +185,7 @@ new class extends Component {
         }
 
         try {
-           DB::transaction(function () {
+            DB::transaction(function () {
                 $game = Game::create([
                     'creator_id' => $this->user->id,
                     'game_package_id' => $this->game_package_id,
@@ -178,11 +200,14 @@ new class extends Component {
                     'auto_claim_prizes' => $this->auto_claim_prizes,
                     'max_rounds' => min($this->max_rounds, $this->selectedPackage->max_rounds),
                     'current_round' => 1,
-                    'status' => 'draft',
+                    'status' => 'waiting',
+                    'uuid' => (string) Str::uuid(),
+                    'invite_code' => strtoupper(Str::random(10)),
                 ]);
 
                 foreach ($this->prizes as $index => $prize) {
                     $game->prizes()->create([
+                        'uuid' => (string) Str::uuid(),
                         'name' => $prize['name'],
                         'description' => $prize['description'] ?? '',
                         'position' => $index + 1,
@@ -194,7 +219,8 @@ new class extends Component {
                 }
 
                 $this->dispatch('notify', type: 'success', text: 'Arena lançada com sucesso!');
-                $this->redirect(route('games.edit', $game->uuid), navigate: true);
+                
+                return redirect()->route('games.edit', $game->uuid);
             });
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: $e->getMessage());
@@ -326,14 +352,26 @@ new class extends Component {
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            <div class="space-y-4">
-                                <div>
-                                    <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Máximo de Rodadas</label>
-                                    <p class="text-[8px] text-slate-700 font-bold mt-1">Limite: {{ $this->selectedPackage->max_rounds }} rodadas</p>
-                                </div>
-                                <input type="number" wire:model.live="max_rounds" min="1" max="{{ $this->selectedPackage->max_rounds }}"
-                                    class="w-full bg-[#0b0d11] border border-white/10 rounded-2xl py-4 text-center font-black text-white text-xl focus:border-blue-500">
-                            </div>
+                            
+    <div class="space-y-4">
+        <div>
+            <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Máximo de Rodadas</label>
+            <p class="text-[8px] text-slate-700 font-bold mt-1">Limite: {{ $this->selectedPackage->max_rounds }} rodadas</p>
+        </div>
+        <input type="number" wire:model.live="max_rounds" min="1" max="{{ $this->selectedPackage->max_rounds }}"
+            class="w-full bg-[#0b0d11] border border-white/10 rounded-2xl py-4 text-center font-black text-white text-xl focus:border-blue-500">
+    </div>
+    
+    {{-- CARTELAS POR JOGADOR --}}
+    <div class="space-y-4">
+        <div>
+            <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Cartelas por Jogador</label>
+            <p class="text-[8px] text-slate-700 font-bold mt-1">Máximo: {{ $this->selectedPackage->max_cards_per_player ?? 10 }} cartelas</p>
+        </div>
+        <input type="number" wire:model.live="cards_per_player" 
+            min="1" max="{{ $this->selectedPackage->max_cards_per_player ?? 10 }}"
+            class="w-full bg-[#0b0d11] border border-white/10 rounded-2xl py-4 text-center font-black text-white text-xl focus:border-blue-500">
+    </div>
                             <div class="space-y-4">
                                 <div>
                                     <label class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Prêmios por Rodada</label>
@@ -345,28 +383,34 @@ new class extends Component {
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-    <button type="button" wire:click="$toggle('show_drawn_to_players')" class="flex items-center justify-between p-5 rounded-2xl border transition-all {{ $show_drawn_to_players ? 'bg-blue-600/10 border-blue-500 text-white' : 'bg-[#0b0d11] border-white/5 opacity-50' }}">
-        <div class="text-left">
-            <span class="text-[10px] font-black uppercase italic block">Exibir Sorteados</span>
-            <span class="text-[7px] text-slate-600 font-bold">Mostrar números aos jogadores</span>
-        </div>
-        <div class="w-4 h-4 rounded {{ $show_drawn_to_players ? 'bg-blue-500' : 'bg-slate-800' }}"></div>
-    </button>
-    <button type="button" wire:click="$toggle('show_player_matches')" class="flex items-center justify-between p-5 rounded-2xl border transition-all {{ $show_player_matches ? 'bg-blue-600/10 border-blue-500 text-white' : 'bg-[#0b0d11] border-white/5 opacity-50' }}">
-        <div class="text-left">
-            <span class="text-[10px] font-black uppercase italic block">Marcar Acertos</span>
-            <span class="text-[7px] text-slate-600 font-bold">Destacar números na cartela</span>
-        </div>
-        <div class="w-4 h-4 rounded {{ $show_player_matches ? 'bg-blue-500' : 'bg-slate-800' }}"></div>
-    </button>
-    <button type="button" wire:click="$toggle('auto_claim_prizes')" class="flex items-center justify-between p-5 rounded-2xl border transition-all {{ $auto_claim_prizes ? 'bg-blue-600/10 border-blue-500 text-white' : 'bg-[#0b0d11] border-white/5 opacity-50' }}">
-        <div class="text-left">
-            <span class="text-[10px] font-black uppercase italic block">Ganho Automático</span>
-            <span class="text-[7px] text-slate-600 font-bold">Sistema reivindica prêmios</span>
-        </div>
-        <div class="w-4 h-4 rounded {{ $auto_claim_prizes ? 'bg-blue-500' : 'bg-slate-800' }}"></div>
-    </button>
-</div>
+                            <button type="button" wire:click="$toggle('show_drawn_to_players')" 
+                                class="flex items-center justify-between p-5 rounded-2xl border transition-all 
+                                {{ $show_drawn_to_players ? 'bg-blue-600/10 border-blue-500 text-white' : 'bg-[#0b0d11] border-white/5 text-slate-500' }}">
+                                <div class="text-left">
+                                    <span class="text-[10px] font-black uppercase italic block">Exibir Sorteados</span>
+                                    <span class="text-[7px] text-slate-600 font-bold">Mostrar números aos jogadores</span>
+                                </div>
+                                <div class="w-4 h-4 rounded {{ $show_drawn_to_players ? 'bg-blue-500' : 'bg-slate-800' }}"></div>
+                            </button>
+                            <button type="button" wire:click="$toggle('show_player_matches')" 
+                                class="flex items-center justify-between p-5 rounded-2xl border transition-all 
+                                {{ $show_player_matches ? 'bg-blue-600/10 border-blue-500 text-white' : 'bg-[#0b0d11] border-white/5 text-slate-500' }}">
+                                <div class="text-left">
+                                    <span class="text-[10px] font-black uppercase italic block">Marcar Acertos</span>
+                                    <span class="text-[7px] text-slate-600 font-bold">Destacar números na cartela</span>
+                                </div>
+                                <div class="w-4 h-4 rounded {{ $show_player_matches ? 'bg-blue-500' : 'bg-slate-800' }}"></div>
+                            </button>
+                            <button type="button" wire:click="$toggle('auto_claim_prizes')" 
+                                class="flex items-center justify-between p-5 rounded-2xl border transition-all 
+                                {{ $auto_claim_prizes ? 'bg-blue-600/10 border-blue-500 text-white' : 'bg-[#0b0d11] border-white/5 text-slate-500' }}">
+                                <div class="text-left">
+                                    <span class="text-[10px] font-black uppercase italic block">Ganho Automático</span>
+                                    <span class="text-[7px] text-slate-600 font-bold">Sistema reivindica prêmios</span>
+                                </div>
+                                <div class="w-4 h-4 rounded {{ $auto_claim_prizes ? 'bg-blue-500' : 'bg-slate-800' }}"></div>
+                            </button>
+                        </div>
                     </div>
 
                     <div class="space-y-8">
@@ -383,7 +427,9 @@ new class extends Component {
                                         $isSelected = (int)$this->card_size === (int)$size;
                                     @endphp
                                     <button type="button" wire:click="setCardSize({{ $size }})" {{ !in_array((int)$size, $allowedArray) ? 'disabled' : '' }}
-                                        class="py-8 rounded-2xl border transition-all flex flex-col items-center {{ !in_array((int)$size, $allowedArray) ? 'opacity-10 cursor-not-allowed bg-black' : 'hover:scale-105 active:scale-95' }} {{ $isSelected ? 'border-blue-500 bg-blue-600/20 shadow-xl' : 'border-white/5 bg-[#0b0d11]' }}">
+                                        class="py-8 rounded-2xl border transition-all flex flex-col items-center 
+                                        {{ !in_array((int)$size, $allowedArray) ? 'opacity-10 cursor-not-allowed bg-black' : 'hover:scale-105 active:scale-95' }} 
+                                        {{ $isSelected ? 'border-blue-500 bg-blue-600/20 shadow-xl' : 'border-white/5 bg-[#0b0d11]' }}">
                                         <span class="text-3xl font-black italic {{ $isSelected ? 'text-white' : 'text-slate-700' }}">{{ $size }}</span>
                                         <span class="text-[7px] font-black uppercase {{ $isSelected ? 'text-blue-500' : 'text-slate-900' }}">CASAS</span>
                                     </button>
@@ -397,8 +443,16 @@ new class extends Component {
                                 <p class="text-[8px] text-slate-600 font-bold mb-6">Controle manual ou automático</p>
                             </div>
                             <div class="grid grid-cols-2 gap-3">
-                                <button type="button" wire:click="$set('draw_mode', 'manual')" class="py-4 rounded-xl border font-black uppercase italic text-[10px] {{ $draw_mode === 'manual' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-[#0b0d11] border-white/5 text-slate-600' }}">Manual</button>
-                                <button type="button" wire:click="$set('draw_mode', 'automatic')" class="py-4 rounded-xl border font-black uppercase italic text-[10px] {{ $draw_mode === 'automatic' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-[#0b0d11] border-white/5 text-slate-600' }}">Auto</button>
+                                <button type="button" wire:click="$set('draw_mode', 'manual')" 
+                                    class="py-4 rounded-xl border font-black uppercase italic text-[10px] 
+                                    {{ $draw_mode === 'manual' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-[#0b0d11] border-white/5 text-slate-600' }}">
+                                    Manual
+                                </button>
+                                <button type="button" wire:click="$set('draw_mode', 'automatic')" 
+                                    class="py-4 rounded-xl border font-black uppercase italic text-[10px] 
+                                    {{ $draw_mode === 'automatic' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-[#0b0d11] border-white/5 text-slate-600' }}">
+                                    Auto
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -413,20 +467,27 @@ new class extends Component {
                                     <p class="text-[8px] text-blue-500 font-bold mt-2">💡 Dica: Preencha todos os títulos antes de lançar</p>
                                 </div>
                             </div>
-                            <button type="button" wire:click.prevent="addPrize" class="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-blue-500 transition-all shadow-lg">+ ADICIONAR SLOT</button>
+                            <button type="button" wire:click.prevent="addPrize" 
+                                class="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-blue-500 transition-all shadow-lg">
+                                + ADICIONAR SLOT
+                            </button>
                         </div>
                         
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                             @foreach ($prizes as $index => $prize)
-                                <div wire:key="prize-{{ $prize['temp_id'] }}" class="bg-[#0b0d11] border border-white/10 rounded-3xl p-6 space-y-4 relative group hover:border-blue-500/30 transition-all">
+                                <div wire:key="prize-{{ $prize['temp_id'] }}" 
+                                    class="bg-[#0b0d11] border border-white/10 rounded-3xl p-6 space-y-4 relative group hover:border-blue-500/30 transition-all">
                                     <div class="flex justify-between items-center">
                                         <div class="flex items-center gap-2">
                                             <span class="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
                                             <span class="text-[9px] font-black text-slate-500 uppercase italic">Slot #{{ $index + 1 }}</span>
                                         </div>
                                         @if(count($prizes) > 1)
-                                            <button type="button" wire:click="removePrize({{ $index }})" class="text-red-900 hover:text-red-500 transition-all p-1">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                            <button type="button" wire:click="removePrize({{ $index }})" 
+                                                class="text-red-900 hover:text-red-500 transition-all p-1">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                </svg>
                                             </button>
                                         @endif
                                     </div>
@@ -436,7 +497,9 @@ new class extends Component {
                                     <textarea wire:model.blur="prizes.{{ $index }}.description" 
                                         class="w-full bg-[#161920] border border-white/5 rounded-xl px-4 py-3 text-white text-[10px] font-bold placeholder-white/5 focus:border-blue-500 transition-all" 
                                         placeholder="BREVE DESCRIÇÃO..." rows="2"></textarea>
-                                    @error("prizes.$index.name") <span class="text-red-500 text-[8px] font-black uppercase italic tracking-tighter">{{ $message }}</span> @enderror
+                                    @error("prizes.$index.name") 
+                                        <span class="text-red-500 text-[8px] font-black uppercase italic tracking-tighter">{{ $message }}</span> 
+                                    @enderror
                                 </div>
                             @endforeach
                         </div>
@@ -445,11 +508,15 @@ new class extends Component {
 
                 <div class="flex flex-col md:flex-row gap-6 items-center pt-10">
                     <button type="submit" {{ $this->canCreate ? '' : 'disabled' }}
-                        class="flex-[2] w-full py-8 rounded-[2.5rem] font-black uppercase text-xl tracking-[0.5em] italic transition-all relative overflow-hidden group {{ $this->canCreate ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/40 cursor-pointer' : 'bg-white/5 text-slate-800 cursor-not-allowed border border-white/5' }}">
+                        class="flex-[2] w-full py-8 rounded-[2.5rem] font-black uppercase text-xl tracking-[0.5em] italic transition-all relative overflow-hidden group 
+                        {{ $this->canCreate ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/40 cursor-pointer' : 'bg-white/5 text-slate-800 cursor-not-allowed border border-white/5' }}">
                         LANÇAR OPERAÇÃO ARENA
                         <div class="absolute inset-0 bg-white/10 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 skew-x-12"></div>
                     </button>
-                    <a href="{{ route('games.index') }}" class="flex-1 w-full text-center py-8 border border-white/10 rounded-[2.5rem] font-black uppercase text-[10px] tracking-widest text-slate-600 hover:text-white hover:bg-white/5 transition-all italic">ABORTAR MISSÃO</a>
+                    <a href="{{ route('games.index') }}" 
+                        class="flex-1 w-full text-center py-8 border border-white/10 rounded-[2.5rem] font-black uppercase text-[10px] tracking-widest text-slate-600 hover:text-white hover:bg-white/5 transition-all italic">
+                        ABORTAR MISSÃO
+                    </a>
                 </div>
             @endif
         </form>

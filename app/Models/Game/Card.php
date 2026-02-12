@@ -50,12 +50,23 @@ class Card extends Model
     }
 
     public function checkBingo(array $drawnNumbers): bool
-    {
-        $cardNumbers = $this->numbers;
-        $matched = array_intersect($cardNumbers, $drawnNumbers);
-
-        return count($matched) === count($cardNumbers);
+{
+    // Garantir que $this->numbers é array
+    $cardNumbers = $this->numbers;
+    
+    // Se for string, decodifica
+    if (is_string($cardNumbers)) {
+        $cardNumbers = json_decode($cardNumbers, true) ?? [];
     }
+    
+    // Se não for array, converte
+    if (!is_array($cardNumbers)) {
+        $cardNumbers = [];
+    }
+    
+    $matched = array_intersect($cardNumbers, $drawnNumbers);
+    return count($matched) === count($cardNumbers);
+}
 
     public function setBingo(): void
     {

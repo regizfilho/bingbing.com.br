@@ -4,41 +4,39 @@ use Livewire\Attributes\{On, Computed};
 use Livewire\Component;
 use App\Models\Game\{Game, Player, Card, Winner};
 use App\Events\GameUpdated;
-use Illuminate\Support\Facades\{Log, DB};
+use Illuminate\Support\Facades\DB;
 
 new class extends Component {
     public Game $game;
     public ?Player $player = null;
     public array $cards = [];
-    public ?int $lastDrawnNumber = null;
-    public array $recentDraws = [];
+    public array $drawnNumbers = [];
     public int $totalDraws = 0;
 
     public function mount(string $invite_code)
-    {
-        $this->game = Game::where('invite_code', $invite_code)
-            ->with(['creator:id,name', 'package:id,max_players,cards_per_player'])
-            ->firstOrFail();
+{
+    $this->game = Game::where('invite_code', $invite_code)
+        ->with(['creator', 'package', 'prizes.winner.user', 'winners.user', 'winners.prize'])
+        ->firstOrFail();
 
-        $this->player = $this->game->players()->where('user_id', auth()->id())->first();
-        $this->syncGameState();
+    // Garantir que cards_per_player está acessível
+    if (!isset($this->game->cards_per_player) || $this->game->cards_per_player === null) {
+        $this->game->cards_per_player = 1;
     }
 
-    public function hydrate(): void
-    {
-        $this->game->unsetRelations();
-        $this->game->load(['creator:id,name', 'package:id,max_players,cards_per_player', 'players.user:id,name', 'prizes', 'draws']);
-        $this->syncGameState();
-    }
+    $this->player = Player::where('game_id', $this->game->id)
+        ->where('user_id', auth()->id())
+        ->first();
+
+    $this->syncGameState();
+}
 
     #[On('echo:game.{game.uuid},.GameUpdated')]
     public function handleUpdate(): void
     {
-        $this->game->unsetRelations();
-        $this->game = Game::where('uuid', $this->game->uuid)
-            ->with(['creator:id,name', 'package', 'players.user:id,name', 'prizes.winner.user', 'draws'])
-            ->firstOrFail();
-
+        $this->game->refresh();
+        $this->game->load(['prizes.winner.user', 'draws', 'winners.user', 'winners.prize']);
+        
         if (!$this->player) {
             $this->player = Player::where('game_id', $this->game->id)
                 ->where('user_id', auth()->id())
@@ -50,47 +48,97 @@ new class extends Component {
 
     private function syncGameState(): void
     {
-        $this->game->refresh();
-
-        if (!$this->player) {
-            $this->player = Player::where('game_id', $this->game->id)
-                ->where('user_id', auth()->id())
-                ->first();
-        }
-
-        $draws = $this->game->draws()
+        $this->drawnNumbers = $this->game->draws()
             ->where('round_number', $this->game->current_round)
-            ->orderByDesc('created_at')
-            ->get();
-
-        $this->lastDrawnNumber = $draws->first()?->number;
-        $this->recentDraws = $draws->take(10)->pluck('number')->toArray();
-        $this->totalDraws = $draws->count();
+            ->orderBy('number', 'asc')
+            ->pluck('number')
+            ->toArray();
+        
+        $this->totalDraws = count($this->drawnNumbers);
 
         if ($this->player) {
-            $this->cards = Card::where('player_id', $this->player->id)
+            $cards = Card::where('player_id', $this->player->id)
                 ->where('round_number', $this->game->current_round)
-                ->get()
-                ->all();
+                ->get();
+            
+            $this->cards = $cards->map(function ($card) {
+                $numbers = $card->numbers;
+                $marked = $card->marked ?? '[]';
+                
+                if (is_array($numbers)) {
+                    $numbersArray = $numbers;
+                } else {
+                    $numbersArray = json_decode($numbers, true) ?? [];
+                }
+                
+                if (is_array($marked)) {
+                    $markedArray = $marked;
+                } else {
+                    $markedArray = json_decode($marked, true) ?? [];
+                }
+                
+                return [
+                    'id' => $card->id,
+                    'uuid' => $card->uuid,
+                    'numbers' => $numbersArray,
+                    'marked' => $markedArray,
+                    'is_bingo' => $card->is_bingo,
+                ];
+            })->toArray();
         }
     }
 
-    public function join()
-    {
-        if ($this->player || !$this->game->canJoin()) {
-            return;
-        }
+public function join()
+{
+    if ($this->player || !$this->game->canJoin()) {
+        return;
+    }
 
-        $this->player = Player::create([
+    // Verificar se o usuário já tem cartelas nesta rodada
+    $existingCards = Card::where('player_id', $this->player?->id)
+        ->where('round_number', $this->game->current_round)
+        ->count();
+    
+    if ($existingCards > 0) {
+        session()->flash('info', 'Você já está na arena com cartelas ativas.');
+        return;
+    }
+
+    DB::transaction(function () {
+        $this->player = Player::firstOrCreate([
             'game_id' => $this->game->id,
             'user_id' => auth()->id(),
+        ], [
             'joined_at' => now(),
         ]);
 
-        broadcast(new GameUpdated($this->game))->toOthers();
-        $this->syncGameState();
-        session()->flash('success', 'Você entrou na partida!');
-    }
+        // Remover cartelas antigas se existirem
+        Card::where('player_id', $this->player->id)
+            ->where('round_number', $this->game->current_round)
+            ->delete();
+
+        $this->game->refresh();
+        
+        $cardsPerPlayer = (int) ($this->game->cards_per_player ?? 1);
+        $cardsPerPlayer = max(1, min(10, $cardsPerPlayer));
+
+        for ($i = 0; $i < $cardsPerPlayer; $i++) {
+            Card::create([
+                'uuid' => (string) \Illuminate\Support\Str::uuid(),
+                'game_id' => $this->game->id,
+                'player_id' => $this->player->id,
+                'round_number' => $this->game->current_round,
+                'numbers' => json_encode($this->game->generateCardNumbers()),
+                'marked' => json_encode([]),
+                'is_bingo' => false,
+            ]);
+        }
+    });
+
+    broadcast(new GameUpdated($this->game))->toOthers();
+    $this->syncGameState();
+    session()->flash('success', 'Você entrou na arena!');
+}
 
     public function markNumber(int $cardIndex, int $number)
     {
@@ -99,75 +147,104 @@ new class extends Component {
         }
 
         $card = $this->cards[$cardIndex] ?? null;
-        if (!$card || in_array($number, $card->marked ?? [])) {
+        if (!$card) {
             return;
         }
 
-        $drawnNumbers = $this->game->getCurrentRoundDrawnNumbers();
-
-        if (!in_array($number, $card->numbers)) {
-            $this->addError('game', 'Número não pertence a esta cartela.');
+        if ($card['is_bingo']) {
+            $this->dispatch('notify', type: 'info', text: 'Cartela já vencedora');
             return;
         }
 
-        if ($this->game->show_player_matches && !in_array($number, $drawnNumbers)) {
-            $this->addError('game', 'Este número ainda não foi sorteado.');
+        $cardModel = Card::find($card['id']);
+        if (!$cardModel || in_array($number, $card['marked'])) {
             return;
         }
 
-        $card->markNumber($number);
+        // REGRA ABSOLUTA: Número precisa ter sido sorteado
+        if (!in_array($number, $this->drawnNumbers)) {
+            $this->dispatch('notify', type: 'error', text: 'Este número ainda não foi sorteado!');
+            return;
+        }
 
-        if ($card->checkBingo($drawnNumbers)) {
-            $card->update(['is_bingo' => true]);
+        $marked = array_merge($card['marked'], [$number]);
+        $cardModel->update(['marked' => json_encode($marked)]);
+
+        // Verificar bingo baseado nas marcações do jogador
+        $allNumbers = $card['numbers'];
+        $markedNumbers = $marked;
+        $hasAllNumbers = count($allNumbers) === count($markedNumbers) && empty(array_diff($allNumbers, $markedNumbers));
+
+        if ($hasAllNumbers) {
+            $cardModel->update(['is_bingo' => true]);
             
-            if ($this->game->auto_claim_prizes) {
-                $nextPrize = $this->game->getNextAvailablePrize();
-                
-                if ($nextPrize) {
-                    DB::transaction(function () use ($card, $nextPrize) {
-                        $nextPrize->update([
-                            'is_claimed' => true,
-                            'winner_card_id' => $card->id,
-                            'claimed_at' => now(),
-                        ]);
-
-                        Winner::create([
-                            'uuid' => (string) \Illuminate\Support\Str::uuid(),
-                            'game_id' => $this->game->id,
-                            'card_id' => $card->id,
-                            'user_id' => $card->player->user_id,
-                            'prize_id' => $nextPrize->id,
-                            'round_number' => $this->game->current_round,
-                            'won_at' => now(),
-                        ]);
-                    });
-
-                    session()->flash('success', '🎉 BINGO! Prêmio concedido automaticamente!');
+            $alreadyWinner = Winner::where('card_id', $card['id'])
+                ->where('round_number', $this->game->current_round)
+                ->exists();
+            
+            if (!$alreadyWinner) {
+                if ($this->game->auto_claim_prizes) {
+                    $this->claimPrizeAutomatically($cardModel);
                 } else {
-                    Winner::create([
-                        'uuid' => (string) \Illuminate\Support\Str::uuid(),
-                        'game_id' => $this->game->id,
-                        'card_id' => $card->id,
-                        'user_id' => $card->player->user_id,
-                        'prize_id' => null,
-                        'round_number' => $this->game->current_round,
-                        'won_at' => now(),
-                    ]);
-
-                    session()->flash('success', '🎉 BINGO de Honra registrado!');
+                    session()->flash('success', 'BINGO! Aguardando validação do organizador.');
+                    broadcast(new GameUpdated($this->game))->toOthers();
                 }
-            } else {
-                session()->flash('success', '🎉 BINGO! Aguarde a validação do host.');
             }
-
-            broadcast(new GameUpdated($this->game))->toOthers();
         }
 
         $this->syncGameState();
     }
 
+    private function claimPrizeAutomatically(Card $card)
+    {
+        $nextPrize = $this->game->prizes()
+            ->where('is_claimed', false)
+            ->orderBy('position', 'asc')
+            ->first();
+
+        DB::transaction(function () use ($card, $nextPrize) {
+            if ($nextPrize) {
+                $nextPrize->update([
+                    'is_claimed' => true,
+                    'winner_card_id' => $card->id,
+                    'claimed_at' => now(),
+                ]);
+            }
+
+            Winner::create([
+                'uuid' => (string) \Illuminate\Support\Str::uuid(),
+                'game_id' => $this->game->id,
+                'card_id' => $card->id,
+                'user_id' => $this->player->user_id,
+                'prize_id' => $nextPrize?->id,
+                'round_number' => $this->game->current_round,
+                'won_at' => now(),
+            ]);
+        });
+    }
+
     #[Computed]
-    public function cardWinners(): array
+    public function roundWinners()
+    {
+        return Winner::where('game_id', $this->game->id)
+            ->where('round_number', $this->game->current_round)
+            ->with(['user', 'prize'])
+            ->orderBy('won_at', 'asc')
+            ->get();
+    }
+
+    #[Computed]
+    public function allTimeWinners()
+    {
+        return Winner::where('game_id', $this->game->id)
+            ->with(['user', 'prize'])
+            ->orderBy('won_at', 'desc')
+            ->limit(10)
+            ->get();
+    }
+
+    #[Computed]
+    public function myWinningCards(): array
     {
         if (!$this->player || empty($this->cards)) {
             return [];
@@ -178,252 +255,301 @@ new class extends Component {
             ->pluck('card_id')
             ->toArray();
     }
+
+    #[Computed]
+    public function canMarkNumbers(): bool
+    {
+        return !empty($this->drawnNumbers);
+    }
 };
 ?>
 
-<div class="min-h-screen bg-[#05070a] py-8 text-slate-200">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="min-h-screen bg-[#0b0d11] text-slate-200">
+    <div class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         
         <header class="mb-10">
-            <div class="flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
                 <div>
                     <div class="flex items-center gap-3 mb-3">
                         <span class="h-[2px] w-12 bg-blue-600"></span>
-                        <span class="text-blue-500 font-black tracking-[0.3em] uppercase text-[10px] italic">Arena de Jogo</span>
+                        <span class="text-blue-500 font-black tracking-[0.3em] uppercase text-[10px] italic">
+                            Arena {{ $game->status === 'active' ? 'em operação' : 'em espera' }}
+                        </span>
                     </div>
-                    <h1 class="text-4xl lg:text-5xl font-black text-white tracking-tighter uppercase italic leading-none">
+                    <h1 class="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tighter uppercase italic leading-none">
                         {{ $game->name }}
                     </h1>
-                    <div class="flex flex-wrap items-center gap-4 lg:gap-8 text-[10px] font-black uppercase tracking-widest text-slate-500 mt-5 italic">
-                        <span class="flex items-center gap-2">
-                            <span class="text-blue-500/50">Código:</span> {{ $game->invite_code }}
-                        </span>
-                        <span class="flex items-center gap-2">
-                            <span class="text-blue-500/50">Rodada:</span> {{ $game->current_round }}/{{ $game->max_rounds }}
-                        </span>
-                        <span class="flex items-center gap-2">
-                            <span class="text-blue-500/50">Jogadores:</span> {{ $game->players->count() }}
-                        </span>
-                    </div>
                 </div>
 
-                <div class="flex flex-col items-end gap-3">
-                    <div class="inline-flex items-center px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] border transition-all
-                        @if($game->status === 'active') bg-emerald-500/10 border-emerald-500/20 text-emerald-500
-                        @elseif($game->status === 'waiting') bg-yellow-500/10 border-yellow-500/20 text-yellow-500
-                        @else bg-white/5 border-white/10 text-slate-500 @endif">
-                        @if($game->status === 'active')
-                            <span class="relative flex h-2 w-2 mr-3">
-                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                            </span>
-                        @endif
-                        {{ ucfirst($game->status) }}
+                <div class="flex items-center gap-4">
+                    <div class="bg-[#161920] border border-white/5 rounded-xl px-5 py-3">
+                        <p class="text-[8px] font-black text-slate-500 uppercase italic">Rodada</p>
+                        <p class="text-xl font-black text-white italic leading-none">
+                            {{ $game->current_round }}<span class="text-slate-700 text-xs">/{{ $game->max_rounds }}</span>
+                        </p>
+                    </div>
+                    <div class="px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] border 
+                        {{ $game->status === 'active' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-white/5 border-white/10 text-slate-500' }}">
+                        {{ $game->status }}
                     </div>
                 </div>
             </div>
 
-            @if(session()->has('success') || session()->has('error'))
-                <div class="mt-8">
-                    <div class="px-6 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest italic border 
-                        {{ session('success') ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400' }}">
-                        {{ session('success') ?? session('error') }}
-                    </div>
+            @if(session()->has('success'))
+                <div class="mt-6 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 px-6 py-4 rounded-xl font-black uppercase text-xs">
+                    {{ session('success') }}
                 </div>
             @endif
         </header>
 
         @if(!$player)
-            <div class="max-w-2xl mx-auto py-12">
-                <div class="bg-[#0b0d11] rounded-[3rem] p-10 lg:p-16 text-center border border-white/5 relative overflow-hidden">
-                    <div class="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-600 to-indigo-500"></div>
-                    
-                    <div class="text-6xl mb-8">🎯</div>
-                    <h2 class="text-3xl font-black text-white uppercase italic tracking-tighter mb-10">Entrar na Partida</h2>
-
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-12">
-                        <div class="bg-white/[0.02] border border-white/5 p-5 rounded-2xl">
-                            <div class="text-[8px] font-black text-slate-500 uppercase mb-2 italic">Cartelas</div>
-                            <div class="text-base font-black text-white italic tracking-tighter">{{ $game->package->cards_per_player ?? 1 }} por jogador</div>
-                        </div>
-                        <div class="bg-white/[0.02] border border-white/5 p-5 rounded-2xl">
-                            <div class="text-[8px] font-black text-slate-500 uppercase mb-2 italic">Vagas</div>
-                            <div class="text-base font-black text-white italic tracking-tighter">{{ $game->players->count() }}/{{ $game->package->max_players }}</div>
-                        </div>
-                        <div class="bg-white/[0.02] border border-white/5 p-5 rounded-2xl">
-                            <div class="text-[8px] font-black text-slate-500 uppercase mb-2 italic">Prêmios</div>
-                            <div class="text-base font-black text-white italic tracking-tighter">{{ $game->prizes->count() }} disponíveis</div>
-                        </div>
-                    </div>
-
-                    @php $isFull = $game->players->count() >= $game->package->max_players; @endphp
-
-                    @if($isFull)
-                        <div class="bg-red-500/10 border border-red-500/20 rounded-2xl p-6 mb-6">
-                            <span class="text-[10px] font-black text-red-500 uppercase tracking-widest italic">Capacidade Máxima Atingida</span>
-                        </div>
-                    @else
-                        <button wire:click="join" class="w-full bg-blue-600 hover:bg-blue-500 text-white px-8 py-5 rounded-2xl font-black uppercase text-xs tracking-[0.3em] italic transition-all active:scale-95 group">
-                            Entrar na Arena <span class="inline-block group-hover:translate-x-2 transition-transform ml-2">→</span>
-                        </button>
-                    @endif
-                </div>
+            <div class="max-w-md mx-auto text-center py-20 bg-[#161920] rounded-[2rem] border border-white/5">
+                <h2 class="text-lg font-black text-white uppercase italic mb-6">Acesso à arena</h2>
+                <p class="text-sm text-slate-400 mb-8">Utilize seu código de acesso para entrar na partida</p>
+                <button wire:click="join" class="bg-blue-600 hover:bg-blue-700 px-12 py-5 rounded-xl font-black italic uppercase text-white text-sm tracking-widest transition-all">
+                    ENTRAR NA ARENA
+                </button>
             </div>
         @else
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 
                 <div class="lg:col-span-2 space-y-8">
-                    <div class="flex items-center justify-between border-b border-white/5 pb-4">
-                        <h2 class="text-[11px] font-black text-white uppercase tracking-[0.4em] italic flex items-center gap-3">
-                            <span class="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
-                            Suas Cartelas
-                        </h2>
-                    </div>
-
-                    @if(empty($cards))
-                        <div wire:key="waiting-{{ $game->current_round }}" class="bg-[#0b0d11] border-2 border-dashed border-white/5 rounded-[2.5rem] p-16 text-center">
-                            <div class="text-4xl mb-6 opacity-20">⏳</div>
-                            <p class="text-slate-500 font-black uppercase italic tracking-tighter text-lg">Aguardando Geração das Cartelas</p>
-                            <p class="text-[9px] text-slate-700 font-black uppercase tracking-widest mt-2">O host está preparando a rodada {{ $game->current_round }}</p>
-                        </div>
-                    @else
-                        <div wire:key="cards-{{ $game->current_round }}" class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            @foreach($cards as $index => $card)
-                                @php $hasWon = in_array($card->id, $this->cardWinners); @endphp
-                                <div wire:key="card-{{ $card->id }}" 
-                                    class="bg-[#0b0d11] rounded-[2.5rem] p-8 border border-white/5 transition-all duration-500 relative overflow-hidden
-                                    {{ $hasWon ? 'border-emerald-500/50 shadow-[0_0_40px_rgba(16,185,129,0.15)]' : '' }}">
-                                    
-                                    @if($hasWon)
-                                        <div class="absolute inset-0 bg-emerald-500/[0.03] animate-pulse"></div>
-                                        <div class="relative z-10 bg-emerald-600 text-white text-center py-4 rounded-2xl mb-8">
-                                            <div class="font-black text-2xl italic tracking-tighter uppercase">🎉 BINGO!</div>
-                                            <div class="text-[8px] font-black uppercase tracking-widest mt-1 opacity-80">Parabéns, você venceu!</div>
-                                        </div>
-                                    @endif
-
-                                    <div class="flex justify-between items-center mb-8 relative z-10">
-                                        <div>
-                                            <span class="text-[10px] font-black text-slate-600 uppercase tracking-widest italic">Cartela #{{ $index + 1 }}</span>
-                                            <div class="text-[8px] font-mono text-slate-800 mt-1">{{ substr($card->uuid, 0, 8) }}</div>
-                                        </div>
-                                        <div class="flex items-center gap-3">
-                                            @php $pct = count($card->numbers) > 0 ? count($card->marked ?? []) / count($card->numbers) : 0; @endphp
-                                            <span class="text-[10px] font-black text-blue-500 italic">{{ round($pct * 100) }}%</span>
-                                            <div class="h-1.5 w-16 bg-white/5 rounded-full overflow-hidden">
-                                                <div class="h-full bg-blue-600 transition-all duration-1000" style="width: {{ $pct * 100 }}%"></div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div class="grid gap-3 mb-8 relative z-10" style="grid-template-columns: repeat({{ $game->card_size === 9 ? 3 : ($game->card_size === 15 ? 5 : 5) }}, minmax(0, 1fr))">
-                                        @foreach($card->numbers as $number)
-                                            @php 
-                                                $isMarked = in_array($number, $card->marked ?? []); 
-                                                $isDrawn = $game->show_drawn_to_players && in_array($number, $this->recentDraws);
-                                            @endphp
-                                            <button wire:click="markNumber({{ $index }}, {{ $number }})"
-                                                @if($game->status !== 'active' || $hasWon) disabled @endif
-                                                class="aspect-square rounded-xl flex items-center justify-center font-black text-xl lg:text-2xl transition-all duration-300 relative
-                                                    {{ $isMarked ? 'bg-blue-600 text-white scale-90' : ($isDrawn ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 'bg-white/[0.02] text-slate-600 border border-white/5 hover:border-blue-500/30 hover:text-blue-400') }}
-                                                    {{ $game->status !== 'active' ? 'opacity-20 cursor-not-allowed' : '' }}">
-                                                {{ $number }}
-                                                @if($isMarked)
-                                                    <span class="absolute -top-1 -right-1 flex h-3 w-3">
-                                                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                                                        <span class="relative inline-flex rounded-full h-3 w-3 bg-blue-300"></span>
-                                                    </span>
-                                                @endif
-                                            </button>
-                                        @endforeach
-                                    </div>
-
-                                    <div class="flex items-center justify-between text-[9px] font-black uppercase tracking-widest italic text-slate-700">
-                                        <span>Marcados: {{ count($card->marked ?? []) }}/{{ count($card->numbers) }}</span>
-                                        <span class="text-blue-500/50">Status: Ativo</span>
-                                    </div>
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
-                </div>
-
-                <aside class="space-y-8">
-                    <div class="bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-8 relative overflow-hidden">
-                        <div class="absolute top-0 right-0 w-32 h-32 bg-blue-600/[0.02] blur-3xl"></div>
-                        <h3 class="text-[10px] font-black text-white uppercase tracking-[0.4em] mb-8 italic flex items-center gap-3">
-                            <span class="w-2 h-2 bg-blue-600 rounded-full"></span> 
-                            Informações
-                        </h3>
-                        <div class="space-y-3">
-                            <div class="flex justify-between items-center p-4 bg-white/[0.01] border border-white/5 rounded-2xl">
-                                <span class="text-[9px] font-black text-slate-600 uppercase italic">Jogadores</span>
-                                <span class="font-black text-white italic text-sm">{{ $game->players->count() }}</span>
+                    
+                    @if($game->show_drawn_to_players && !empty($drawnNumbers))
+                        <div class="bg-[#161920] border border-white/5 rounded-[2rem] p-6">
+                            <div class="flex items-center justify-between mb-4">
+                                <span class="text-[10px] font-black text-slate-500 uppercase italic tracking-widest">
+                                    Números sorteados
+                                </span>
+                                <span class="text-[10px] font-black text-slate-700">
+                                    {{ $totalDraws }}/75
+                                </span>
                             </div>
-                            @if($game->status === 'active' && $game->show_drawn_to_players)
-                                <div class="flex justify-between items-center p-4 bg-blue-600/5 border border-blue-600/10 rounded-2xl">
-                                    <span class="text-[9px] font-black text-blue-500 uppercase italic">Números Sorteados</span>
-                                    <span class="font-black text-white italic text-sm">{{ $totalDraws }}<span class="text-slate-800 mx-1">/</span>75</span>
-                                </div>
-                            @endif
+                            <div class="flex flex-wrap gap-2">
+                                @foreach(array_slice($drawnNumbers, -10) as $number)
+                                    <span class="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-sm font-bold text-slate-300 border border-white/5">
+                                        {{ $number }}
+                                    </span>
+                                @endforeach
+                                @if($totalDraws > 10)
+                                    <span class="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-xs font-bold text-slate-500">
+                                        +{{ $totalDraws - 10 }}
+                                    </span>
+                                @endif
+                            </div>
                         </div>
-                    </div>
-
-                    @if($game->status === 'active' && $game->show_drawn_to_players && $lastDrawnNumber)
-                        <div class="bg-gradient-to-br from-blue-700 to-indigo-900 rounded-[2.5rem] p-8 text-center relative overflow-hidden">
-                            <div class="absolute -right-10 -top-10 w-32 h-32 bg-white/10 rounded-full blur-3xl"></div>
-                            <div class="relative z-10">
-                                <div class="text-[10px] text-white/60 font-black uppercase tracking-[0.3em] mb-3">Último Número</div>
-                                <div class="text-6xl font-black text-white drop-shadow-2xl">{{ $lastDrawnNumber }}</div>
+                    @elseif($game->show_drawn_to_players && empty($drawnNumbers) && $game->status === 'active')
+                        <div class="bg-[#161920] border border-white/5 rounded-[2rem] p-6">
+                            <div class="text-center">
+                                <span class="text-[10px] font-black text-slate-500 uppercase italic tracking-widest">
+                                    Aguardando primeiro sorteio...
+                                </span>
                             </div>
                         </div>
                     @endif
 
-                    <div class="bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-8">
-                        <h3 class="text-[10px] font-black text-white uppercase tracking-[0.4em] mb-8 italic flex items-center gap-3">
-                            <span class="w-2 h-2 bg-amber-500 rounded-full"></span>
-                            Prêmios
-                        </h3>
-                        <div class="space-y-4">
-                            @foreach($game->prizes->sortBy('position') as $prize)
-                                @php 
-                                    $isNext = !$prize->is_claimed && $game->getNextAvailablePrize()?->id === $prize->id;
-                                    $isClaimed = $prize->is_claimed;
-                                @endphp
-                                <div class="p-5 rounded-[1.5rem] border transition-all duration-500 relative
-                                    {{ $isClaimed ? 'bg-emerald-500/[0.02] border-emerald-500/20 opacity-50' : 'bg-white/[0.01] border-white/5' }}
-                                    {{ $isNext ? 'border-blue-500/40 bg-blue-500/5' : '' }}">
-                                    
-                                    <div class="flex items-start justify-between">
-                                        <div>
-                                            <div class="text-[9px] font-black uppercase italic tracking-tighter mb-1 {{ $isClaimed ? 'text-emerald-500' : ($isNext ? 'text-blue-500' : 'text-slate-700') }}">
-                                                {{ $prize->position }}º Lugar
-                                            </div>
-                                            <div class="text-sm font-black text-white uppercase italic tracking-tighter">
-                                                {{ $prize->name }}
-                                            </div>
-
-                                            @if($isClaimed)
-                                                @php $winner = $prize->winner()->first(); @endphp
-                                                @if($winner)
-                                                    <div class="mt-3 flex items-center gap-2">
-                                                        <div class="text-[8px] font-black uppercase text-emerald-500 tracking-widest italic bg-emerald-500/10 px-2 py-0.5 rounded">
-                                                            Vencedor: {{ explode(' ', $winner->user->name)[0] }}
-                                                        </div>
-                                                    </div>
-                                                @endif
-                                            @endif
-                                        </div>
-
-                                        @if($isClaimed)
-                                            <span class="text-emerald-500 text-lg">✓</span>
-                                        @elseif($isNext)
-                                            <div class="bg-blue-600 h-2 w-2 rounded-full animate-ping"></div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        @foreach($cards as $index => $card)
+                            @php 
+                                $hasWon = in_array($card['id'], $this->myWinningCards);
+                                $isBingo = $card['is_bingo'] ?? false;
+                                $marked = $card['marked'] ?? [];
+                                $numbers = $card['numbers'] ?? [];
+                                $totalNumbers = count($numbers);
+                                $markedCount = count($marked);
+                                $allMarked = $markedCount === $totalNumbers && $totalNumbers > 0;
+                                
+                                $canMark = $game->status === 'active' && !$hasWon && !$isBingo && !$allMarked;
+                                $buttonDisabled = !$canMark;
+                            @endphp
+                            <div wire:key="card-{{ $card['id'] }}" 
+                                class="bg-[#161920] rounded-[2rem] p-6 border transition-all duration-300
+                                {{ $isBingo || $hasWon ? 'border-emerald-500/50 bg-emerald-500/5' : ($allMarked ? 'border-amber-500/50 bg-amber-500/5' : 'border-white/5') }}">
+                                
+                                <div class="flex justify-between items-center mb-4">
+                                    <div>
+                                        <span class="text-[9px] font-black text-slate-600 uppercase italic tracking-wider">
+                                            Cartela #{{ $index + 1 }}
+                                        </span>
+                                        @if($totalNumbers > 0)
+                                            <span class="ml-2 text-[8px] font-black text-slate-700">
+                                                {{ $markedCount }}/{{ $totalNumbers }}
+                                            </span>
                                         @endif
                                     </div>
+                                    
+                                    @if($hasWon)
+                                        <span class="bg-emerald-500/10 text-emerald-500 text-[8px] font-black px-3 py-1 rounded-full uppercase italic border border-emerald-500/20">
+                                            PREMIADA
+                                        </span>
+                                    @elseif($isBingo)
+                                        <span class="bg-emerald-500/10 text-emerald-500 text-[8px] font-black px-3 py-1 rounded-full uppercase italic border border-emerald-500/20">
+                                            BINGO
+                                        </span>
+                                    @elseif($allMarked)
+                                        <span class="bg-amber-500/10 text-amber-500 text-[8px] font-black px-3 py-1 rounded-full uppercase italic border border-amber-500/20">
+                                            AGUARDANDO
+                                        </span>
+                                    @endif
+                                </div>
+
+                                <div class="grid gap-1.5" style="grid-template-columns: repeat(5, 1fr)">
+                                    @foreach($numbers as $num)
+                                        @php 
+                                            $isMarked = in_array($num, $marked);
+                                            $wasDrawn = in_array($num, $drawnNumbers);
+                                            $shouldHighlight = $game->show_player_matches && $wasDrawn && !$isMarked && $canMark;
+                                        @endphp
+                                        <button wire:click="markNumber({{ $index }}, {{ $num }})"
+                                            @if($buttonDisabled || $isMarked || !$wasDrawn) disabled @endif
+                                            class="aspect-square rounded-lg flex items-center justify-center font-bold text-base transition-all
+                                            {{ $isMarked 
+                                                ? 'bg-blue-600 text-white' 
+                                                : ($shouldHighlight && $wasDrawn
+                                                    ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30' 
+                                                    : 'bg-white/5 text-slate-600 border border-white/5 hover:bg-white/10 hover:text-slate-400'
+                                                )
+                                            }}
+                                            {{ $hasWon || $isBingo ? 'opacity-50 cursor-not-allowed' : '' }}
+                                            title="{{ !$wasDrawn ? 'Aguardando sorteio' : '' }}">
+                                            {{ $num }}
+                                        </button>
+                                    @endforeach
+                                </div>
+                                
+                                @if($allMarked && !$isBingo && !$hasWon)
+                                    <div class="mt-4 text-center py-2 px-3 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                                        <span class="text-[9px] font-black text-amber-500 uppercase tracking-widest">
+                                            ✓ Cartela completa - Aguardando validação
+                                        </span>
+                                    </div>
+                                @endif
+                                
+                                @if($isBingo && !$hasWon)
+                                    <div class="mt-4 text-center py-2 px-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
+                                        <span class="text-[9px] font-black text-emerald-500 uppercase tracking-widest">
+                                            ✓ BINGO validado
+                                        </span>
+                                    </div>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+
+                <aside class="space-y-6">
+                    
+                    <div class="bg-[#161920] border border-white/5 rounded-[2rem] p-6">
+                        <h3 class="text-[10px] font-black text-white uppercase italic tracking-widest mb-5 pb-3 border-b border-white/5">
+                            Prêmios - Rodada {{ $game->current_round }}
+                        </h3>
+                        
+                        <div class="space-y-3">
+                            @foreach($game->prizes->sortBy('position') as $prize)
+                                @php $winner = $this->roundWinners->firstWhere('prize_id', $prize->id); @endphp
+                                <div class="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/5">
+                                    <div class="flex items-center gap-3">
+                                        <span class="text-[10px] font-black text-slate-600 w-6">
+                                            #{{ $prize->position }}
+                                        </span>
+                                        <div>
+                                            <p class="text-xs font-black text-white uppercase italic tracking-tight">
+                                                {{ $prize->name }}
+                                            </p>
+                                            @if($winner)
+                                                <p class="text-[8px] font-bold text-slate-500 uppercase mt-0.5">
+                                                    {{ $winner->user->name }}
+                                                </p>
+                                            @endif
+                                        </div>
+                                    </div>
+                                    @if($prize->is_claimed)
+                                        <span class="text-emerald-500 text-[10px] font-black">✓</span>
+                                    @else
+                                        <span class="text-slate-700 text-[8px] font-black uppercase">Disponível</span>
+                                    @endif
                                 </div>
                             @endforeach
                         </div>
+                    </div>
+
+                    <div class="bg-[#161920] border border-white/5 rounded-[2rem] p-6">
+                        <div class="flex items-center justify-between mb-5 pb-3 border-b border-white/5">
+                            <h3 class="text-[10px] font-black text-white uppercase italic tracking-widest">
+                                Classificação - Rodada {{ $game->current_round }}
+                            </h3>
+                            <span class="text-[9px] font-black text-slate-600">
+                                {{ $this->roundWinners->count() }} vencedor(es)
+                            </span>
+                        </div>
+                        
+                        @if($this->roundWinners->isNotEmpty())
+                            <div class="space-y-3">
+                                @foreach($this->roundWinners as $index => $winner)
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center">
+                                            <span class="text-[10px] font-black {{ $index < 3 ? 'text-amber-500' : 'text-slate-600' }}">
+                                                {{ $index + 1 }}º
+                                            </span>
+                                        </div>
+                                        <div class="flex-1">
+                                            <p class="text-xs font-black text-white uppercase italic tracking-tight">
+                                                {{ $winner->user->name }}
+                                            </p>
+                                            <p class="text-[8px] font-bold {{ $winner->prize ? 'text-emerald-500' : 'text-slate-500' }} uppercase">
+                                                {{ $winner->prize?->name ?? 'Honra' }}
+                                            </p>
+                                        </div>
+                                        <span class="text-[8px] font-bold text-slate-600">
+                                            {{ $winner->won_at->format('H:i') }}
+                                        </span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @else
+                            <div class="text-center py-6">
+                                <p class="text-[10px] font-black text-slate-700 uppercase tracking-widest">
+                                    Nenhum vencedor
+                                </p>
+                            </div>
+                        @endif
+                    </div>
+
+                    <div class="bg-[#161920] border border-white/5 rounded-[2rem] p-6">
+                        <div class="flex items-center justify-between mb-5 pb-3 border-b border-white/5">
+                            <h3 class="text-[10px] font-black text-white uppercase italic tracking-widest">
+                                Hall da Fama
+                            </h3>
+                            <span class="text-[9px] font-black text-slate-600">
+                                Todas as rodadas
+                            </span>
+                        </div>
+                        
+                        @if($this->allTimeWinners->isNotEmpty())
+                            <div class="space-y-2">
+                                @foreach($this->allTimeWinners as $winner)
+                                    <div class="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-[9px] font-black text-slate-600 w-5">
+                                                R{{ $winner->round_number }}
+                                            </span>
+                                            <span class="text-[10px] font-black text-white uppercase">
+                                                {{ $winner->user->name }}
+                                            </span>
+                                        </div>
+                                        <span class="text-[8px] font-bold {{ $winner->prize ? 'text-emerald-500' : 'text-slate-600' }} uppercase">
+                                            {{ $winner->prize?->name ?? 'Honra' }}
+                                        </span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @else
+                            <div class="text-center py-6">
+                                <p class="text-[10px] font-black text-slate-700 uppercase tracking-widest">
+                                    Aguardando vencedores
+                                </p>
+                            </div>
+                        @endif
                     </div>
                 </aside>
             </div>

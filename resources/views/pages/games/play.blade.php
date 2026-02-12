@@ -10,7 +10,6 @@ use App\Models\Game\Prize;
 use App\Events\GameUpdated;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 new class extends Component {
@@ -23,14 +22,19 @@ new class extends Component {
     public bool $showNoPrizesWarning = false;
     public bool $isPaused = false;
     public $willRefund = false;
-    public int $tempSeconds;
+    public int $tempSeconds = 3;
 
     public function mount(string $uuid): void
     {
         $user = auth()->user();
 
         $this->game = Game::where('uuid', $uuid)
-            ->with(['creator:id,name,wallet_id', 'package:id,name,max_players,is_free,cost_credits', 'prizes:id,game_id,name,description,position,is_claimed,uuid', 'players.user:id,name'])
+            ->with([
+                'creator:id,name,wallet_id', 
+                'package:id,name,max_players,is_free,cost_credits', 
+                'prizes:id,game_id,name,description,position,is_claimed,uuid', 
+                'players.user:id,name'
+            ])
             ->firstOrFail();
 
         $this->isCreator = $this->game->creator_id === $user->id;
@@ -40,40 +44,47 @@ new class extends Component {
         }
 
         $this->winningCards = collect();
+        $this->tempSeconds = $this->game->auto_draw_seconds ?? 3;
         $this->loadGameData();
-        $this->tempSeconds = $this->game->auto_draw_seconds;
     }
 
     #[On('echo:game.{game.uuid},.GameUpdated')]
-public function handleGameUpdate(): void
-{
-    $this->game->unsetRelations();
-    $this->game = Game::where('uuid', $this->game->uuid)
-        ->with([
-            'creator:id,name,wallet_id',
-            'package:id,name,max_players,is_free,cost_credits',
-            'prizes:id,game_id,name,description,position,is_claimed,uuid',
-            'players.user:id,name',
-            'players.cards',
-            'draws',
-            'winners.user',
-            'winners.prize'
-        ])
-        ->firstOrFail();
+    public function handleGameUpdate(): void
+    {
+        $this->game->unsetRelations();
+        $this->game = Game::where('uuid', $this->game->uuid)
+            ->with([
+                'creator:id,name,wallet_id',
+                'package:id,name,max_players,is_free,cost_credits',
+                'prizes:id,game_id,name,description,position,is_claimed,uuid',
+                'players.user:id,name',
+                'players.cards',
+                'draws',
+                'winners.user',
+                'winners.prize'
+            ])
+            ->firstOrFail();
 
-    $this->loadGameData();
-}
+        $this->loadGameData();
+    }
 
-#[On('game-updated')]
-public function refreshGame(): void
-{
-    $this->handleGameUpdate();
-}
+    #[On('game-updated')]
+    public function refreshGame(): void
+    {
+        $this->handleGameUpdate();
+    }
 
     public function hydrate(): void
     {
         $this->game->unsetRelations();
-        $this->game->load(['prizes', 'package', 'players.cards', 'players.user:id,name', 'winners.user', 'draws' => fn($q) => $q->where('round_number', $this->game->current_round)]);
+        $this->game->load([
+            'prizes', 
+            'package', 
+            'players.cards', 
+            'players.user:id,name', 
+            'winners.user', 
+            'draws' => fn($q) => $q->where('round_number', $this->game->current_round)
+        ]);
         $this->loadGameData();
     }
 
@@ -140,7 +151,12 @@ public function refreshGame(): void
         }
 
         $allWinningCards = $this->game->checkWinningCards() ?? collect();
-        $alreadyWinnerIds = DB::table('winners')->where('game_id', $this->game->id)->where('round_number', $this->game->current_round)->pluck('card_id')->toArray();
+        $alreadyWinnerIds = DB::table('winners')
+            ->where('game_id', $this->game->id)
+            ->where('round_number', $this->game->current_round)
+            ->pluck('card_id')
+            ->toArray();
+            
         $this->winningCards = $allWinningCards->whereNotIn('id', $alreadyWinnerIds)->values();
 
         if ($this->winningCards->isNotEmpty()) {
@@ -186,16 +202,16 @@ public function refreshGame(): void
         $this->finishAction($prize ? 'Prêmio concedido!' : 'Bingo de Honra registrado!');
     }
 
-        private function finishAction(string $msg): void
-{
-    $this->game->refresh();
-    $this->loadGameData();
-    
-    broadcast(new GameUpdated($this->game))->toOthers();
-    $this->dispatch('game-updated')->self();
-    
-    session()->flash('success', $msg);
-}
+    private function finishAction(string $msg): void
+    {
+        $this->game->refresh();
+        $this->loadGameData();
+        
+        broadcast(new GameUpdated($this->game))->toOthers();
+        $this->dispatch('game-updated')->self();
+        
+        session()->flash('success', $msg);
+    }
 
     public function startNextRound(): void
     {
@@ -241,8 +257,6 @@ public function refreshGame(): void
 
         $this->finishAction("Rodada {$proxRodada} iniciada!");
     }
-
-
 
     public function startGame(): void
     {
@@ -296,6 +310,12 @@ public function refreshGame(): void
         }
 
         $this->drawNumber();
+    }
+
+    #[Computed]
+    public function isGameMaster(): bool
+    {
+        return $this->isCreator;
     }
 };
 ?>
@@ -485,7 +505,7 @@ public function refreshGame(): void
             @if($game->status === 'active')
                 <section class="mb-10 bg-[#161920] border border-white/10 rounded-[2rem] p-6"
                     wire:key="control-{{ $game->current_round }}-{{ $isPaused ? 'p' : 'a' }}"
-                    @if($game->draw_mode === 'automatic' && !$isPaused) wire:poll.visible.{{ $game->auto_draw_seconds }}s="autoDraw" @endif>
+                    @if($game->draw_mode === 'automatic' && !$isPaused) wire:poll.visible.{{ $game->auto_draw_seconds ?? 3 }}s="autoDraw" @endif>
 
                     <div class="flex justify-between items-center mb-6">
                         <h2 class="text-xl font-black text-white uppercase italic flex items-center gap-2">
@@ -522,7 +542,7 @@ public function refreshGame(): void
                                         <div class="flex h-4 w-4 rounded-full bg-green-500 animate-pulse"></div>
                                         <div>
                                             <div class="text-sm font-black text-green-400 uppercase italic">Modo Automático</div>
-                                            <div class="text-[10px] text-slate-400 font-bold uppercase">Próximo em {{ $game->auto_draw_seconds }}s</div>
+                                            <div class="text-[10px] text-slate-400 font-bold uppercase">Próximo em {{ $game->auto_draw_seconds ?? 3 }}s</div>
                                         </div>
                                     @else
                                         <div class="flex h-4 w-4 rounded-full bg-red-500"></div>
