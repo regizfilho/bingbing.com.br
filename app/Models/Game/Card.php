@@ -9,8 +9,8 @@ class Card extends Model
 {
     use HasUuids;
 
-    protected $fillable = ['uuid', 'player_id', 'numbers', 'marked', 'is_bingo', 'bingo_at'];
-    
+    protected $fillable = ['uuid', 'player_id', 'game_id', 'numbers', 'marked', 'is_bingo', 'bingo_at'];
+
     protected $casts = [
         'numbers' => 'array',
         'marked' => 'array',
@@ -40,7 +40,7 @@ class Card extends Model
         }
 
         $marked = $this->marked ?? [];
-        
+
         if (!in_array($number, $marked)) {
             $marked[] = $number;
             $this->update(['marked' => $marked]);
@@ -53,7 +53,7 @@ class Card extends Model
     {
         $cardNumbers = $this->numbers;
         $matched = array_intersect($cardNumbers, $drawnNumbers);
-        
+
         return count($matched) === count($cardNumbers);
     }
 
@@ -68,5 +68,10 @@ class Card extends Model
     public function getRouteKeyName()
     {
         return 'uuid';
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(\App\Models\User::class);
     }
 }

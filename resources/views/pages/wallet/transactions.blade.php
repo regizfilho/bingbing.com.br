@@ -1,29 +1,27 @@
 <?php
 
+use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Livewire\WithPagination;
 
 new class extends Component {
     use WithPagination;
 
-    public $user;
-
-    public function mount()
+    #[Computed]
+    public function user()
     {
-        $this->user = auth()->user();
+        return auth()->user();
     }
 
-    public function render()
+    #[Computed]
+    public function transactions()
     {
-        return view('livewire.wallet.transactions', [
-            'transactions' => $this->user->wallet->transactions()
-                ->with('transactionable')
-                ->latest()
-                ->paginate(20),
-        ]);
+        return $this->user->wallet->transactions()
+            ->with('transactionable')
+            ->latest()
+            ->paginate(20);
     }
 };
-
 ?>
 
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -32,12 +30,13 @@ new class extends Component {
             <h1 class="text-3xl font-bold text-gray-900">Histórico de Transações</h1>
             <p class="text-gray-600">Todas as movimentações da sua carteira</p>
         </div>
-        <a href="{{ route('wallet.index') }}" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition font-medium shadow-sm">
+        <a href="{{ route('wallet.index') }}" 
+            class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition font-medium shadow-sm">
             ← Voltar para Carteira
         </a>
     </div>
 
-    <div class="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100">
+    <div class="bg-white rounded-xl shadow-md overflow-hidden border">
         <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
@@ -51,7 +50,7 @@ new class extends Component {
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200">
-                    @forelse($transactions as $transaction)
+                    @forelse ($this->transactions as $transaction)
                         <tr class="hover:bg-gray-50 transition">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                 {{ $transaction->created_at->format('d/m/Y H:i') }}
@@ -61,17 +60,14 @@ new class extends Component {
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm">
                                 <span class="px-3 py-1 text-xs font-medium rounded-full
-                                    @if($transaction->type === 'credit') bg-green-100 text-green-800
+                                    @if ($transaction->type === 'credit') bg-green-100 text-green-800
                                     @elseif($transaction->type === 'debit') bg-red-100 text-red-800
-                                    @else bg-blue-100 text-blue-800
-                                    @endif">
+                                    @else bg-blue-100 text-blue-800 @endif">
                                     {{ ucfirst($transaction->type) }}
                                 </span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold
-                                @if($transaction->type === 'credit') text-green-600
-                                @else text-red-600
-                                @endif">
+                                {{ $transaction->type === 'credit' ? 'text-green-600' : 'text-red-600' }}">
                                 {{ $transaction->type === 'credit' ? '+' : '-' }}{{ number_format(abs($transaction->amount), 2, ',', '.') }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900 font-medium">
@@ -79,11 +75,10 @@ new class extends Component {
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-center text-sm">
                                 <span class="px-3 py-1 text-xs font-medium rounded-full
-                                    @if($transaction->status === 'completed') bg-green-100 text-green-800
+                                    @if ($transaction->status === 'completed') bg-green-100 text-green-800
                                     @elseif($transaction->status === 'refunded') bg-gray-100 text-gray-800
                                     @elseif($transaction->status === 'pending') bg-yellow-100 text-yellow-800
-                                    @else bg-gray-200 text-gray-700
-                                    @endif">
+                                    @else bg-gray-200 text-gray-700 @endif">
                                     {{ ucfirst($transaction->status) }}
                                 </span>
                             </td>
@@ -100,9 +95,9 @@ new class extends Component {
             </table>
         </div>
 
-        @if($transactions->hasPages())
+        @if ($this->transactions->hasPages())
             <div class="px-6 py-5 border-t bg-gray-50">
-                {{ $transactions->links('vendor.pagination.tailwind') }}
+                {{ $this->transactions->links('vendor.pagination.tailwind') }}
             </div>
         @endif
     </div>

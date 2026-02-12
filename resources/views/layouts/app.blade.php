@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,6 +16,7 @@
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
 </head>
+
 <body class="font-sans antialiased bg-gray-100">
 
     <!-- Navbar -->
@@ -29,25 +31,25 @@
 
                 <div class="hidden md:flex gap-2">
                     <a href="{{ route('dashboard') }}"
-                       class="px-3 py-2 rounded-md text-sm font-medium transition
+                        class="px-3 py-2 rounded-md text-sm font-medium transition
                        {{ request()->routeIs('dashboard') ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100' }}">
                         Dashboard
                     </a>
 
                     <a href="{{ route('wallet.index') }}"
-                       class="px-3 py-2 rounded-md text-sm font-medium transition
+                        class="px-3 py-2 rounded-md text-sm font-medium transition
                        {{ request()->routeIs('wallet.*') ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100' }}">
                         Carteira
                     </a>
 
                     <a href="{{ route('games.index') }}"
-                       class="px-3 py-2 rounded-md text-sm font-medium transition
+                        class="px-3 py-2 rounded-md text-sm font-medium transition
                        {{ request()->routeIs('games.*') && !request()->routeIs('games.join') ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100' }}">
                         Jogos
                     </a>
 
                     <a href="{{ route('rankings.index') }}"
-                       class="px-3 py-2 rounded-md text-sm font-medium transition
+                        class="px-3 py-2 rounded-md text-sm font-medium transition
                        {{ request()->routeIs('rankings.*') ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100' }}">
                         Rankings
                     </a>
@@ -85,5 +87,8 @@
     </main>
 
     @livewireScripts
+
+    @livewireScripts
 </body>
+
 </html>

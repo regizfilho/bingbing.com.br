@@ -8,16 +8,18 @@ use App\Models\User;
 class Player extends Model
 {
     protected $fillable = ['game_id', 'user_id', 'joined_at'];
-    
+
     protected $casts = ['joined_at' => 'datetime'];
 
     protected static function booted()
     {
         static::created(function ($player) {
-            $max = $player->game->package->max_cards_per_player;
-            
-            for ($i = 0; $i < $max; $i++) {
-                $player->generateCard();
+            // Pega a quantidade configurada NA PARTIDA (se não tiver, usa 1)
+            $count = $player->game->cards_per_player ?? 1;
+            $cardSize = $player->game->card_size ?? 24;
+
+            for ($i = 0; $i < $count; $i++) {
+                $player->generateCardForRound(1, $cardSize);
             }
         });
     }
@@ -37,13 +39,15 @@ class Player extends Model
         return $this->hasMany(Card::class);
     }
 
-    private function generateCard()
+    public function generateCardForRound(int $roundNumber, int $cardSize)
     {
-        $numbers = collect(range(1, 75))->shuffle()->take(24)->sort()->values();
-        
+        $numbers = collect(range(1, 75))->shuffle()->take($cardSize)->sort()->values();
+
         return $this->cards()->create([
+            'game_id' => $this->game_id,
             'numbers' => $numbers,
             'marked' => [],
+            'round_number' => $roundNumber,
         ]);
     }
 }

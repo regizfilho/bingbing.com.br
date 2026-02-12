@@ -6,19 +6,57 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use App\Models\User;
 use Illuminate\Support\Str;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class Game extends Model
 {
     use HasUuids;
 
     protected $fillable = [
-        'uuid', 'creator_id', 'game_package_id', 'name', 'invite_code',
-        'draw_mode', 'auto_draw_seconds', 'status', 'started_at', 'finished_at'
+        'uuid',
+        'creator_id',
+        'game_package_id',
+        'name',
+        'invite_code',
+        'draw_mode',
+        'auto_draw_seconds',
+        'card_size',
+        'show_drawn_to_players',
+        'show_player_matches',
+        'cards_per_player',
+        'prizes_per_round',
+        'max_rounds',
+        'current_round',
+        'status',
+        'started_at',
+        'finished_at'
     ];
 
     protected $casts = [
+        'show_drawn_to_players' => 'boolean',
+        'show_player_matches' => 'boolean',
         'started_at' => 'datetime',
         'finished_at' => 'datetime',
+        'current_round' => 'integer',
+        'max_rounds' => 'integer',
+        'card_size' => 'integer',
+        'cards_per_player' => 'integer',
+        'prizes_per_round' => 'integer',
+    ];
+
+    protected $attributes = [
+        'current_round' => 1,
+        'status' => 'waiting',
+        'card_size' => 24,
+        'max_rounds' => 1,
+        'draw_mode' => 'manual',
+        'auto_draw_seconds' => 10,
+        'show_drawn_to_players' => true,
+        'show_player_matches' => true,
+        'cards_per_player' => 1,
+        'prizes_per_round' => 1,
     ];
 
     public function uniqueIds()
@@ -29,82 +67,187 @@ class Game extends Model
     protected static function booted()
     {
         static::creating(function ($game) {
-            $game->invite_code = strtoupper(Str::random(12));
+            if (!$game->invite_code) {
+                $game->invite_code = strtoupper(Str::random(12));
+            }
         });
     }
 
-    public function creator()
-    {
-        return $this->belongsTo(User::class, 'creator_id');
-    }
-
-    public function package()
-    {
-        return $this->belongsTo(GamePackage::class, 'game_package_id');
-    }
-
-    public function prizes()
-    {
-        return $this->hasMany(Prize::class)->orderBy('position');
-    }
-
-    public function players()
-    {
-        return $this->hasMany(Player::class);
-    }
-
-    public function draws()
-    {
-        return $this->hasMany(Draw::class)->orderBy('sequence');
-    }
-
-    public function winners()
-    {
-        return $this->hasMany(Winner::class);
-    }
+    // Relacionamentos
+    public function creator() { return $this->belongsTo(User::class, 'creator_id'); }
+    public function package() { return $this->belongsTo(GamePackage::class, 'game_package_id'); }
+    public function prizes() { return $this->hasMany(Prize::class)->orderBy('position'); }
+    public function players() { return $this->hasMany(Player::class); }
+    public function draws() { return $this->hasMany(Draw::class)->orderBy('sequence'); }
+    public function winners() { return $this->hasMany(Winner::class); }
+    public function cards() { return $this->hasMany(Card::class); }
 
     public function canJoin(): bool
     {
-        return $this->status === 'waiting' && 
-               $this->players()->count() < $this->package->max_players;
+        return $this->status === 'waiting' &&
+            $this->players()->count() < $this->package->max_players;
+    }
+
+    public function generateCardNumbers(): array
+    {
+        $numbers = [];
+        $cardSize = $this->card_size ?? 24;
+
+        while (count($numbers) < $cardSize) {
+            $num = rand(1, 75);
+            if (!in_array($num, $numbers)) {
+                $numbers[] = $num;
+            }
+        }
+        sort($numbers);
+        return $numbers;
+    }
+
+    /**
+     * CORREÇÃO: Garante a rodada correta buscando direto do banco se necessário
+     */
+    public function generateCardsForCurrentRound(): void
+    {
+        // Força sincronização com o banco de dados
+        $this->refresh();
+        
+        $currentRound = (int) $this->current_round;
+        $cardsPerPlayer = (int) ($this->cards_per_player ?? 1);
+
+        Log::info("GERANDO CARTELAS: Jogo {$this->id} para Rodada {$currentRound}");
+
+        foreach ($this->players as $player) {
+            // Limpa lixo da rodada atual para evitar duplicatas por cliques repetidos
+            Card::where('player_id', $player->id)
+                ->where('round_number', $currentRound)
+                ->delete();
+
+            for ($i = 0; $i < $cardsPerPlayer; $i++) {
+                $this->cards()->create([
+                    'uuid' => (string) Str::uuid(),
+                    'player_id' => $player->id,
+                    'round_number' => $currentRound,
+                    'numbers' => $this->generateCardNumbers(),
+                    'marked' => [],
+                    'is_bingo' => false,
+                ]);
+            }
+        }
     }
 
     public function drawNumber(): ?Draw
     {
-        if ($this->status !== 'active') {
-            return null;
-        }
+        if ($this->status !== 'active') return null;
 
-        $drawnNumbers = $this->draws->pluck('number')->toArray();
+        $drawnNumbers = $this->getCurrentRoundDrawnNumbers();
+        if (count($drawnNumbers) >= 75) return null;
+
         $available = array_diff(range(1, 75), $drawnNumbers);
-
-        if (empty($available)) {
-            return null;
-        }
+        if (empty($available)) return null;
 
         $number = collect($available)->random();
-        $sequence = $this->draws()->max('sequence') + 1;
+        $sequence = $this->draws()->where('round_number', $this->current_round)->max('sequence') ?? 0;
 
         return $this->draws()->create([
+            'game_id' => $this->id,
             'number' => $number,
-            'sequence' => $sequence,
+            'sequence' => $sequence + 1,
+            'round_number' => $this->current_round,
             'drawn_at' => now(),
         ]);
     }
 
-    public function checkWinningCards()
+    public function checkWinningCards(): Collection
     {
-        $drawnNumbers = $this->draws->pluck('number')->toArray();
-        
-        return $this->players()
-            ->with('cards')
+        $drawnNumbers = $this->getCurrentRoundDrawnNumbers();
+
+        return $this->cards()
+            ->where('round_number', $this->current_round)
             ->get()
-            ->flatMap->cards
-            ->filter(fn($card) => !$card->is_bingo && $card->checkBingo($drawnNumbers));
+            ->filter(function ($card) use ($drawnNumbers) {
+                return $card->checkBingo($drawnNumbers);
+            });
     }
 
-    public function getRouteKeyName()
+    /**
+     * AJUSTE: Garante que a rodada seja persistida antes de gerar cartelas
+     */
+    public function startNextRound(): bool
     {
-        return 'uuid';
+        if (!$this->canStartNextRound()) return false;
+
+        // Persistência imediata do incremento
+        $this->increment('current_round');
+        
+        // Refresh para carregar o novo valor e as relações
+        $this->refresh();
+
+        // Agora gera as cartelas com a rodada já atualizada no banco
+        $this->generateCardsForCurrentRound();
+
+        return true;
     }
+
+    public function canStartNextRound(): bool
+    {
+        if ($this->status !== 'active') return false;
+        if ($this->current_round >= $this->max_rounds) return false;
+        if ($this->players()->count() === 0) return false;
+
+        if ($this->prizes()->count() === 0) return true;
+
+        $claimedInRound = $this->winners()
+            ->where('round_number', $this->current_round)
+            ->distinct('prize_id')
+            ->count('prize_id');
+
+        return $claimedInRound >= $this->prizes_per_round;
+    }
+
+    public function getNextAvailablePrize()
+    {
+        return $this->prizes()
+            ->where('is_claimed', false)
+            ->orderBy('position')
+            ->first();
+    }
+
+    public function hasAvailablePrizes(): bool
+    {
+        return $this->prizes()->where('is_claimed', false)->exists();
+    }
+
+    public function getGameRanking(): array
+    {
+        $winners = $this->winners()->with(['user', 'prize'])->orderBy('won_at')->get();
+        $ranking = [];
+
+        foreach ($winners as $winner) {
+            $userId = $winner->user_id;
+            if (!isset($ranking[$userId])) {
+                $ranking[$userId] = [
+                    'user' => $winner->user,
+                    'wins' => 0,
+                    'prizes' => [],
+                    'rounds' => [],
+                ];
+            }
+            $ranking[$userId]['wins']++;
+            $ranking[$userId]['prizes'][] = $winner->prize->name;
+            $ranking[$userId]['rounds'][] = $winner->round_number;
+        }
+
+        usort($ranking, fn($a, $b) => $b['wins'] <=> $a['wins']);
+        return array_values($ranking);
+    }
+
+    public function getActivePlayersCount(): int { return $this->players()->count(); }
+    public function getCurrentRoundDrawsCount(): int { return $this->draws()->where('round_number', $this->current_round)->count(); }
+    public function getCurrentRoundDrawnNumbers(): array { return $this->draws()->where('round_number', $this->current_round)->pluck('number')->toArray(); }
+    public function isFull(): bool { return $this->players()->count() >= $this->package->max_players; }
+    public function getSpotsLeft(): int { return max(0, $this->package->max_players - $this->players()->count()); }
+    public function willRefund(): bool { return $this->status === 'finished' && ($this->players()->count() === 0 || $this->winners()->count() === 0); }
+    public function getPackageCost(): int { return $this->package->cost_credits ?? 0; }
+    public function isFree(): bool { return $this->package->is_free ?? true; }
+    public function getRouteKeyName() { return 'uuid'; }
 }

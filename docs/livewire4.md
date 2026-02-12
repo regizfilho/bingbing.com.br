@@ -1,206 +1,333 @@
-Aqui está um **guia objetivo e completo das principais mudanças do **Livewire 3 para o Livewire 4** — com explicações claras, exemplos de código e foco nas diferenças reais que você precisa saber hoje 👇 ([FilmoGaz][1])
+````md
+# Livewire 3 → Livewire 4 — Diferenças com Exemplos de Código
+
+Resumo **completo, direto e técnico**, incluindo **todas as mudanças relevantes** + **exemplos reais**.
 
 ---
 
-# 🚀 Livewire 3 → Livewire 4 — Principais Mudanças (Markdown)
+## 1️⃣ Estrutura de Componentes (Single-File vs Multi-File)
 
-## 🧠 1) Nova Estrutura de Componentes — *View-First / Arquivo Único*
-
-No **Livewire 4** você pode criar componentes com tudo **em um só arquivo**: lógica, Blade, CSS e até JavaScript — não é mais obrigatório separar class + view.
-
-📌 Exemplo:
+### Livewire 3 (Multi-file obrigatório)
 
 ```php
-{{-- resources/views/components/counter.wire.php --}}
-@php
-new class extends Livewire\Component {
-    public $count = 0;
+// app/Livewire/Counter.php
+namespace App\Livewire;
 
-    public function increment() {
+use Livewire\Component;
+
+class Counter extends Component
+{
+    public int $count = 0;
+
+    public function increment()
+    {
         $this->count++;
     }
-};
-@endphp
+
+    public function render()
+    {
+        return view('livewire.counter');
+    }
+}
+````
+
+```blade
+<!-- resources/views/livewire/counter.blade.php -->
+<div>
+    <span>{{ $count }}</span>
+    <button wire:click="increment">+</button>
+</div>
+```
+
+---
+
+### Livewire 4 (Single-File Component — padrão)
+
+```php
+<?php
+
+use Livewire\Component;
+
+class Counter extends Component
+{
+    public int $count = 0;
+
+    public function increment()
+    {
+        $this->count++;
+    }
+}
+?>
 
 <div>
-    <button wire:click="increment">+</button>
     <span>{{ $count }}</span>
+    <button wire:click="increment">+</button>
 </div>
-
-<style>
-/* CSS local ao componente */
-</style>
-
-<script>
-// JS local opcional
-</script>
 ```
 
-**Livewire 3:** sempre class + Blade separado
-**Livewire 4:** Single-File Component por padrão ([Medium][2])
+✅ Blade + PHP + JS + CSS no mesmo arquivo
+✅ MFC ainda funciona
 
 ---
 
-## 🗂 2) Namespaces e Organização Melhorados
+## 2️⃣ Slots (inexistente no v3)
 
-Livewire 4 recomenda uma estrutura mais lógica e alinhada ao Laravel:
-
-* `pages::` → componentes de página
-* `layouts::` → layouts
-* componentes comuns em `resources/views/components`
-
-📌 Exemplo de rota com namespace:
+### Livewire 4 — Componente com slot
 
 ```php
-Route::livewire('/posts/create', 'pages::post.create');
+<?php
+
+use Livewire\Component;
+
+class Card extends Component {}
+?>
+
+<div {{ $attributes->merge(['class' => 'border p-4 rounded']) }}>
+    <header>{{ $header }}</header>
+    <main>{{ $slot }}</main>
+</div>
 ```
 
-Isso **melhora a modularidade** do projeto. ([FilmoGaz][1])
-
----
-
-## ⚡ 3) Islands — Partial Rendering Independente
-
-O novo recurso **@island** permite renderizar partes isoladas da interface, carregadas e atualizadas independentemente do restante do componente — ótimo para dashboards e seções pesadas.
-
-📌 Uso básico:
+Uso:
 
 ```blade
-@island('revenue', lazy: true)
-    @placeholder
-        <x-revenue-skeleton />
-    @endplaceholder
-
-    <x-revenue-chart :data="$expensiveData" />
-@endisland
-```
-
-**Vantagem:** desempenho melhor e UX mais responsivo. ([Wirelabs][3])
-
----
-
-## 🧩 4) Slots e Suporte de Blade Melhorado
-
-Livewire 4 agora suporta **slots como Blade tradicional**, incluindo slots nomeados.
-
-📌 Exemplo:
-
-```blade
-<wire:modal>
-    <x-slot:title>Confirmar ação</x-slot:title>
+<livewire:card class="bg-white">
+    <x-slot name="header">Título</x-slot>
     Conteúdo aqui
-</wire:modal>
+</livewire:card>
 ```
 
-Isso aproxima componentes Livewire do ecossistema de Blade. ([Wirelabs][3])
+❌ Livewire 3 não suporta slots.
 
 ---
 
-## ⚙️ 5) Configuração Atualizada
+## 3️⃣ @island — Renderização Parcial (novo no v4)
 
-Algumas chaves no `config/livewire.php` foram renomeadas ou reorganizadas:
+### Livewire 4
 
-### Antes (v3):
+```blade
+<div>
+    <h1>Dashboard</h1>
 
-```php
-'layout' => 'components.layouts.app',
+    @island
+        <livewire:heavy-report />
+    @endisland
+</div>
 ```
 
-### Agora (v4):
-
-```php
-'component_layout' => 'layouts::app',
-```
-
-Outros exemplos:
-
-* `lazy_placeholder` → `component_placeholder`
-* Nova opção `smart_wire_keys` agora true por padrão ([Laravel][4])
+✅ Apenas o bloco dentro de `@island` re-renderiza
+❌ Livewire 3 sempre re-renderiza o componente inteiro
 
 ---
 
-## 🔥 6) Desempenho Geral e Blaze Compiler
+## 4️⃣ Loading States Automáticos
 
-Livewire 4 inclui grandes melhorias de performance por trás dos panos — graças ao novo **Blaze Compiler**:
+### Livewire 4
 
-* Renderização mais rápida
-* Menos overhead em componentes
-* Smart hydration
-
-📌 Em benchmarks, algumas cargas ficam **até 10x mais rápidas**. ([Wirelabs][3])
-
----
-
-## 🪟 7) Estados de Loading Automáticos
-
-Agora componentes aplicam automaticamente atributos de loading (`data-loading`) sem precisar marcar manualmente `wire:loading` para cada botão.
-
-📌 Uso com Tailwind:
-
-```html
-<button wire:click="save" class="btn" data-loading:class="opacity-50">
-    Salvar
+```blade
+<button wire:click="save" class="btn">
+    <span data-loading.remove>Salvar</span>
+    <span data-loading>Salvando...</span>
 </button>
 ```
 
-Isso torna estados de loading **mais simples e menos verbosos**. ([Wirelabs][3])
+❌ No v3 precisava de:
 
----
-
-## 📦 8) Compatibilidade e Migração Suave
-
-➡️ **Backward compatibility é prioridade.**
-A maior parte dos componentes do Livewire 3 funciona em Livewire 4 sem refatoração.
-
-📌 Para migrar:
-
-```bash
-composer require livewire/livewire:^4.0
-php artisan optimize:clear
+```blade
+<span wire:loading.remove>Salvar</span>
+<span wire:loading>Salvando...</span>
 ```
 
-💡 Muitos ajustes são via config e nomes de métodos, raramente via lógica. ([Laravel][5])
-
 ---
 
-## 🧪 9) Modificadores de `wire:model`
+## 5️⃣ Scripts e Styles Dentro do Componente (novo)
 
-Em v4 alguns modificadores como `.blur` e `.change` mudaram comportamento e agora controlam **quando** o valor é sincronizado — se preciso manter modo antigo pode usar `.live` antes deles:
+### Livewire 4
 
-```html
-wire:model.live.blur="campo"
+```php
+<?php use Livewire\Component; ?>
+
+<div>
+    <button wire:click="toggle">Toggle</button>
+</div>
+
+<script>
+    console.log('JS do componente');
+</script>
+
+<style>
+    button { color: red; }
+</style>
 ```
 
-Essa mudança dá mais controle ao sincronismo de estados. ([Laravel][4])
+❌ Livewire 3 exige assets externos.
 
 ---
 
-## 🧩 10) Componente Tradicional Ainda Suportado
+## 6️⃣ wire:transition (mudança de API)
 
-Apesar do foco em Single-File Components, a forma clássica (separando class e view) continua **totalmente suportada**. Você decide o estilo que melhor serve ao projeto. ([Laravel News][6])
+### Livewire 3
+
+```blade
+<div wire:transition.opacity.scale.duration.300ms>
+    Conteúdo
+</div>
+```
+
+### Livewire 4
+
+```blade
+<div wire:transition>
+    Conteúdo
+</div>
+```
+
+✔ Agora usa **View Transitions API do browser**
+❌ Modificadores removidos
 
 ---
 
-# 🧾 Resumo de Mudanças Rápido
+## 7️⃣ Routing de Componentes
 
-| Recurso                | Livewire 3             | Livewire 4                  |
-| ---------------------- | ---------------------- | --------------------------- |
-| Componentes            | Class + view separados | Single-file por padrão      |
-| Organ. de componentes  | flexível               | `pages::`, `layouts::`, etc |
-| Renderização isolada   | ❌                      | ✔️ via `@island`            |
-| Slots                  | limitado               | ✔️ como Blade               |
-| Config defaults        | older                  | novos nomes/valores         |
-| Performance            | boa                    | muito melhor (Blaze)        |
-| Backward compatibility | sim                    | sim                         |
-| wire:model behavior    | antigo                 | controlável com `.live`     |
+### Livewire 3
+
+```php
+Route::get('/counter', Counter::class);
+```
+
+### Livewire 4 (padrão)
+
+```php
+Route::livewire('/counter', 'pages::counter');
+```
+
+Ou:
+
+```php
+Route::livewire('/counter', Counter::class);
+```
 
 ---
 
-Se quiser posso **comparar lado-a-lado com trechos de código reais de Livewire 3 vs Livewire 4**, além de exemplos práticos de migração de componentes antigos.
+## 8️⃣ Organização de Pastas (nova convenção)
 
-[1]: https://www.filmogaz.com/100623?utm_source=chatgpt.com "Discover What’s New in Livewire 4 Update - Filmogaz"
-[2]: https://sadiqueali.medium.com/livewire-v4-release-starter-kit-updates-laravels-reactive-renaissance-979c919fedf5?utm_source=chatgpt.com "Livewire v4 Release & Starter Kit Updates: Laravel’s Reactive Renaissance | by Sadique Ali | Jan, 2026 | Medium"
-[3]: https://wirelabs.io/blog/livewire-4-has-landed-the-full-stack-framework-that-got-a-speed-boost-and-a-makeover?utm_source=chatgpt.com "⚡ Livewire 4 Has Landed"
-[4]: https://livewire.laravel.com/docs/4.x/upgrading?utm_source=chatgpt.com "Upgrade Guide | Laravel Livewire"
-[5]: https://livewire.laravel.com/docs/upgrading?utm_source=chatgpt.com "Upgrade Guide | Laravel Livewire"
-[6]: https://laravel-news.com/everything-new-in-livewire-4?utm_source=chatgpt.com "Everything new in Livewire 4 - Laravel News"
+### Livewire 4 (padrão)
+
+```
+app/Livewire/Pages/Dashboard.php   → pages::dashboard
+app/Livewire/Layouts/App.php      → layouts::app
+app/Livewire/Components/Button.php
+```
+
+Livewire 3 não impunha padrão.
+
+---
+
+## 9️⃣ Volt (mudança de namespace)
+
+### Livewire 3
+
+```php
+use Livewire\Volt\Component;
+```
+
+### Livewire 4
+
+```php
+use Livewire\Component;
+```
+
+---
+
+## 🔟 Testes
+
+### Livewire 3
+
+```php
+Livewire::test(Counter::class)
+    ->call('increment')
+    ->assertSet('count', 1);
+```
+
+### Livewire 4 (igual + novos helpers)
+
+```php
+Livewire::test('pages::counter')
+    ->call('increment')
+    ->assertSee('1');
+```
+
+Novo:
+
+```php
+Livewire::visit('/counter')->assertSee('0');
+```
+
+---
+
+## 1️⃣1️⃣ Polling Não Bloqueante
+
+### Livewire 4
+
+```blade
+<div wire:poll.5s>
+    {{ now() }}
+</div>
+```
+
+✔ Não bloqueia interações
+❌ No v3 podia travar requisições
+
+---
+
+## 1️⃣2️⃣ Attribute Forwarding (novo)
+
+### Livewire 4
+
+```blade
+<livewire:button class="bg-red-500" />
+```
+
+```blade
+<button {{ $attributes }}>
+    {{ $slot }}
+</button>
+```
+
+❌ No v3 precisava mapear manualmente.
+
+---
+
+## 📊 Resumo Comparativo
+
+| Recurso                    | Livewire 3 | Livewire 4 |
+| -------------------------- | ---------- | ---------- |
+| Single-file components     | ❌          | ✅          |
+| Slots                      | ❌          | ✅          |
+| @island (render parcial)   | ❌          | ✅          |
+| Loading automático         | ❌          | ✅          |
+| Scripts/styles inline      | ❌          | ✅          |
+| View Transitions nativas   | ❌          | ✅          |
+| Organização por namespaces | ❌          | ✅          |
+| Performance (Blaze engine) | ❌          | ✅          |
+| Attribute forwarding       | ❌          | ✅          |
+| Poll não bloqueante        | ❌          | ✅          |
+
+---
+
+## 🧠 Impacto Técnico Real
+
+Livewire 4:
+✔ Reduz arquivos
+✔ Melhora performance perceptível
+✔ Permite layout composável real (slots + islands)
+✔ Simplifica estados de loading
+✔ Aproxima DX de frameworks modernos (React/Vue)
+
+---
+
+Se quiser, posso gerar:
+
+* Guia de migração automática 3 → 4
+* Refatoração real de um componente seu
+* Boilerplate SaaS Livewire 4 profissional

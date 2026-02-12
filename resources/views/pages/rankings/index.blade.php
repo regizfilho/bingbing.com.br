@@ -1,261 +1,414 @@
 <?php
 
+use Livewire\Attributes\Computed;
 use Livewire\Component;
 use App\Models\Ranking\Rank;
+use App\Models\User;
 use Illuminate\Support\Collection;
+use Livewire\Attributes\Layout;
 
-new class extends Component {
-    public $user;
-    public string $rankingType = 'total'; // total, weekly, monthly
-    public Collection $topPlayers;
-    public ?int $userPosition = null;
+new #[Layout('layouts.arena')] class extends Component {
+    public string $tipoRanking = 'total';
+    public string $papelContexto = 'jogador';
+    public bool $mostrarModalPatentes = false;
+    public ?User $jogadorSelecionado = null; 
 
-    public function mount()
+    // Mapeamento de Tradução para as Patentes
+    protected $traducoes = [
+        'beginner' => 'Iniciante',
+        'experienced' => 'Veterano',
+        'master' => 'Mestre',
+        'legend' => 'Lenda',
+        'immortal' => 'Imortal',
+        'sniper' => 'Sniper',
+        'honor_guard' => 'Guardião'
+    ];
+
+    #[Computed]
+    public function usuario() { return auth()->user(); }
+
+    #[Computed]
+    public function topRanking(): Collection
     {
-        $this->user = auth()->user();
-        $this->topPlayers = collect();
-        $this->loadRankings();
-    }
+        $coluna = $this->papelContexto === 'jogador' 
+            ? match ($this->tipoRanking) { 'semanal' => 'weekly_wins', 'mensal' => 'monthly_wins', default => 'total_wins' }
+            : 'total_games_hosted'; 
 
-    public function setRankingType(string $type)
-    {
-        $this->rankingType = $type;
-        $this->loadRankings();
-    }
-
-    public function loadRankings()
-    {
-        $column = match ($this->rankingType) {
-            'weekly' => 'weekly_wins',
-            'monthly' => 'monthly_wins',
-            default => 'total_wins',
-        };
-
-        // Top 50 jogadores
-        $ranks = Rank::with(['user.titles'])
-            ->where($column, '>', 0)
-            ->orderByDesc($column)
+        return Rank::with(['user.titles'])
+            ->where($coluna, '>', 0)
+            ->orderByDesc($coluna)
+            ->orderBy('total_games', 'asc')
             ->take(50)
-            ->get();
-
-        $this->topPlayers = $ranks->map(fn ($rank, $index) => [
-            'position' => $index + 1,
-            'user' => $rank->user,
-            'wins' => $rank->$column,
-            'games' => $rank->total_games,
-            'titles' => $rank->user->titles->pluck('type')->toArray(),
-        ]);
-
-        // Posição do usuário atual (com tratamento para null/0)
-        $userWins = Rank::where('user_id', $this->user->id)->value($column);
-
-        if (is_null($userWins) || $userWins <= 0) {
-            $this->userPosition = null;
-        } else {
-            $this->userPosition = Rank::where($column, '>', $userWins)
-                ->count() + 1;
-        }
+            ->get()
+            ->map(fn($rank, $index) => [
+                'posicao' => $index + 1,
+                'usuario' => $rank->user,
+                'vitorias' => $rank->total_wins,
+                'criadas' => $rank->total_games_hosted ?? 0,
+                'partidas' => max($rank->total_games, $rank->total_wins),
+                'taxaVitoria' => max($rank->total_games, $rank->total_wins) > 0 ? ($rank->total_wins / max($rank->total_games, $rank->total_wins)) * 100 : 0,
+                'titulos' => $rank->user->titles->map(fn($t) => $this->traducoes[strtolower($t->type)] ?? $t->type)->toArray(),
+                'ehUsuarioAtual' => $rank->user_id === $this->usuario->id,
+                'status' => $rank->total_wins > 50 ? 'Elite' : 'Ativo',
+            ]);
     }
 
-    public function getTitleBadge(array $titles): ?array
+    #[Computed]
+    public function estatisticasUsuario(): array
     {
-        $badges = [
-            'legend' => ['name' => 'Lenda', 'color' => 'bg-purple-600 text-white'],
-            'master' => ['name' => 'Mestre', 'color' => 'bg-yellow-600 text-white'],
-            'experienced' => ['name' => 'Experiente', 'color' => 'bg-blue-600 text-white'],
-            'beginner' => ['name' => 'Iniciante', 'color' => 'bg-green-600 text-white'],
+        $rank = Rank::where('user_id', $this->usuario->id)->first();
+        $vitorias = $rank?->total_wins ?? 0;
+        $partidas = max($rank?->total_games ?? 0, $vitorias);
+        
+        return [
+            'vitorias' => $vitorias,
+            'partidas' => $partidas,
+            'taxa' => $partidas > 0 ? number_format(($vitorias / $partidas) * 100, 1) : '0.0',
+            'posicao' => $this->calcularPosicaoUsuario()
         ];
+    }
 
-        foreach (['legend', 'master', 'experienced', 'beginner'] as $level) {
-            if (in_array($level, $titles, true)) {
-                return $badges[$level];
-            }
-        }
+    private function calcularPosicaoUsuario(): ?int
+    {
+        $coluna = match ($this->tipoRanking) { 'semanal' => 'weekly_wins', 'mensal' => 'monthly_wins', default => 'total_wins' };
+        $vitorias = Rank::where('user_id', $this->usuario->id)->value($coluna);
+        if (!$vitorias) return null;
+        return Rank::where($coluna, '>', $vitorias)->count() + 1;
+    }
 
-        return null;
+    public function abrirDossie($userId) {
+        $this->jogadorSelecionado = User::with(['titles', 'rank'])->find($userId);
+    }
+
+    public function fecharDossie() { $this->jogadorSelecionado = null; }
+
+    public function setTipoRanking($tipo) { $this->tipoRanking = $tipo; }
+    
+    public function setPapelContexto($papel) { $this->papelContexto = $papel; }
+
+    public function alternarModalPatentes() { $this->mostrarModalPatentes = !$this->mostrarModalPatentes; }
+
+    public function getDefinicoesPatentes(): array
+    {
+        return [
+            ['type' => 'immortal', 'name' => 'Imortal', 'icon' => '🔥', 'color' => 'bg-red-600', 'desc' => 'Top #1 Combatente absoluto da temporada.'],
+            ['type' => 'legend', 'name' => 'Lenda', 'icon' => '🏆', 'color' => 'bg-purple-600', 'desc' => 'Mais de 100 vitórias conquistadas.'],
+            ['type' => 'master', 'name' => 'Mestre', 'icon' => '👑', 'color' => 'bg-yellow-600', 'desc' => 'Consistência impecável com 50+ vitórias.'],
+            ['type' => 'sniper', 'name' => 'Sniper', 'icon' => '🎯', 'color' => 'bg-orange-500', 'desc' => 'Precisão fatal: Taxa de vitória acima de 25%.'],
+            ['type' => 'experienced', 'name' => 'Veterano', 'icon' => '⭐', 'color' => 'bg-blue-600', 'desc' => 'Herói resiliente com 10+ vitórias no currículo.'],
+            ['type' => 'beginner', 'name' => 'Iniciante', 'icon' => '🌱', 'color' => 'bg-green-600', 'desc' => 'O início da jornada. Conquistou sua 1ª vitória.'],
+        ];
+    }
+
+    // Helper para traduzir no Blade
+    public function traduzir($tipo) {
+        return $this->traducoes[strtolower($tipo)] ?? $tipo;
     }
 };
-
 ?>
 
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-    <div class="mb-8">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Rankings</h1>
-        <p class="text-gray-600">Veja os melhores jogadores de bingo</p>
-    </div>
+<div class="min-h-screen bg-[#0b0d11] text-slate-200 font-sans selection:bg-blue-500/30 overflow-x-hidden pb-20">
+    {{-- Brilhos de Fundo --}}
+    <div class="fixed top-0 left-1/4 w-[500px] h-[500px] bg-blue-600/5 rounded-full blur-[120px] -z-10"></div>
+    <div class="fixed bottom-0 right-1/4 w-[500px] h-[500px] bg-purple-600/5 rounded-full blur-[120px] -z-10"></div>
 
-    <!-- Card do usuário logado -->
-    <div class="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg shadow-lg p-8 mb-8 text-white">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-16">
+
+        {{-- Cabeçalho Principal --}}
+        <div class="relative mb-12 flex flex-col lg:flex-row lg:items-end justify-between gap-8">
             <div>
-                <div class="text-sm opacity-90 mb-1">Sua Posição</div>
-                <div class="text-3xl font-bold">
-                    @if($userPosition)
-                        #{{ $userPosition }}
-                    @else
-                        Não ranqueado
-                    @endif
+                <div class="flex items-center gap-3 mb-4">
+                    <span class="h-1 w-12 bg-blue-600 rounded-full"></span>
+                    <span class="text-blue-500 font-black tracking-[0.3em] uppercase text-xs italic">Protocolo de Elite 2026</span>
                 </div>
+                <h1 class="text-6xl sm:text-8xl font-black text-white tracking-tighter uppercase italic leading-none">
+                    HALL DA <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-400">FAMA</span>
+                </h1>
             </div>
-            <div>
-                <div class="text-sm opacity-90 mb-1">Vitórias Totais</div>
-                <div class="text-3xl font-bold">{{ $user->rank->total_wins ?? 0 }}</div>
-            </div>
-            <div>
-                <div class="text-sm opacity-90 mb-1">Vitórias Semanais</div>
-                <div class="text-3xl font-bold">{{ $user->rank->weekly_wins ?? 0 }}</div>
-            </div>
-            <div>
-                <div class="text-sm opacity-90 mb-1">Vitórias Mensais</div>
-                <div class="text-3xl font-bold">{{ $user->rank->monthly_wins ?? 0 }}</div>
+
+            <div class="flex flex-col gap-4">
+                <div class="flex bg-white/5 backdrop-blur-md p-1.5 rounded-2xl border border-white/10 shadow-2xl">
+                    <button wire:click="setPapelContexto('jogador')" 
+                        class="flex-1 px-8 py-4 rounded-xl text-xs font-black uppercase tracking-[0.2em] transition-all {{ $papelContexto === 'jogador' ? 'bg-blue-600 text-white shadow-[0_0_20px_rgba(37,99,235,0.4)]' : 'text-slate-500 hover:text-white' }}">
+                        🛡️ Lutadores
+                    </button>
+                    <button wire:click="setPapelContexto('anfitriao')" 
+                        class="flex-1 px-8 py-4 rounded-xl text-xs font-black uppercase tracking-[0.2em] transition-all {{ $papelContexto === 'anfitriao' ? 'bg-purple-600 text-white shadow-[0_0_20px_rgba(147,51,234,0.4)]' : 'text-slate-500 hover:text-white' }}">
+                        🎙️ Anfitriões
+                    </button>
+                </div>
             </div>
         </div>
 
-        @if($user->titles?->count() > 0)
-            <div class="mt-6 pt-6 border-t border-white/20">
-                <div class="text-sm opacity-90 mb-3">Seus Títulos</div>
-                <div class="flex gap-2 flex-wrap">
-                    @foreach($user->titles as $title)
-                        @php($badge = $this->getTitleBadge([$title->type]))
-                        @if($badge)
-                            <span class="px-3 py-1 {{ $badge['color'] }} rounded-full text-sm font-semibold">
-                                {{ $badge['name'] }}
-                            </span>
+        {{-- Seu Card de Perfil --}}
+        <div class="relative group mb-16">
+            <div class="absolute -inset-1 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-[2.5rem] blur opacity-20 group-hover:opacity-30 transition duration-1000"></div>
+            <div class="relative bg-[#161920] border border-white/10 rounded-[2rem] p-10 shadow-2xl overflow-hidden">
+                <div class="relative z-10 flex flex-col xl:flex-row items-center gap-12">
+                    <div class="relative">
+                        <div class="w-32 h-32 sm:w-40 sm:h-40 bg-gradient-to-tr from-blue-600 to-cyan-400 rounded-3xl rotate-3 flex items-center justify-center text-6xl font-black text-white shadow-2xl">
+                            {{ substr($this->usuario->name, 0, 1) }}
+                        </div>
+                        <div class="absolute -bottom-2 -right-2 bg-green-500 w-8 h-8 rounded-full border-4 border-[#161920] animate-pulse"></div>
+                    </div>
+                    
+                    <div class="flex-1 text-center xl:text-left">
+                        <span class="text-blue-500 text-xs font-black uppercase tracking-[0.3em]">Registro Oficial</span>
+                        <h2 class="text-4xl sm:text-6xl font-black text-white mb-4 tracking-tight uppercase italic">{{ $this->usuario->name }}</h2>
+                        <div class="flex flex-wrap justify-center xl:justify-start gap-3">
+                            @forelse($this->usuario->titles as $t)
+                                <span class="px-4 py-2 bg-blue-500/10 border border-blue-500/20 rounded-lg text-xs font-black uppercase text-blue-400 tracking-wider">
+                                    {{ $this->traduzir($t->type) }}
+                                </span>
+                            @empty
+                                <span class="px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-xs font-black uppercase text-slate-500">Sem Patente</span>
+                            @endforelse
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-6 w-full xl:w-auto">
+                        @php
+                            $meusStatus = [
+                                ['label' => 'Vitórias', 'val' => $this->estatisticasUsuario['vitorias'], 'cor' => 'text-white'],
+                                ['label' => 'Partidas', 'val' => $this->estatisticasUsuario['partidas'], 'cor' => 'text-slate-400'],
+                                ['label' => 'Taxa', 'val' => $this->estatisticasUsuario['taxa'].'%', 'cor' => 'text-blue-400'],
+                                ['label' => 'Rank', 'val' => '#'.($this->estatisticasUsuario['posicao'] ?? '--'), 'cor' => 'text-yellow-500'],
+                            ];
+                        @endphp
+                        @foreach($meusStatus as $s)
+                        <div class="bg-white/5 border border-white/5 rounded-3xl p-6 text-center min-w-[130px]">
+                            <div class="text-[10px] font-black text-slate-500 uppercase mb-2 tracking-widest">{{ $s['label'] }}</div>
+                            <div class="text-3xl font-black {{ $s['cor'] }} tracking-tighter">{{ $s['val'] }}</div>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- Pódio - Os 3 Melhores --}}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-10 mb-20">
+            @foreach($this->topRanking->take(3) as $item)
+                <div wire:click="abrirDossie({{ $item['usuario']->id }})" 
+                    class="cursor-pointer relative group bg-[#161920] border border-white/5 rounded-[3rem] p-12 flex flex-col items-center transition-all hover:-translate-y-3 hover:border-blue-500/30 shadow-2xl overflow-hidden">
+                    
+                    <div class="absolute top-6 right-10 text-8xl font-black text-white/5 italic">#{{ $item['posicao'] }}</div>
+                    
+                    <div class="relative mb-8">
+                        <div class="w-28 h-28 bg-slate-800 rounded-[2rem] flex items-center justify-center text-5xl font-black text-white border border-white/10 rotate-3 group-hover:rotate-6 transition-transform shadow-2xl">
+                            {{ substr($item['usuario']->name, 0, 1) }}
+                        </div>
+                        @if($item['posicao'] == 1)
+                            <div class="absolute -top-6 -right-6 w-14 h-14 bg-yellow-500 rounded-2xl flex items-center justify-center text-3xl shadow-lg shadow-yellow-500/40 animate-bounce">👑</div>
                         @endif
+                    </div>
+
+                    <h3 class="text-2xl font-black text-white uppercase mb-2 group-hover:text-blue-400 transition">{{ $item['usuario']->name }}</h3>
+                    <div class="text-blue-500 font-black text-sm uppercase tracking-[0.2em] mb-8">
+                        {{ $papelContexto === 'jogador' ? $item['vitorias'].' Vitórias' : $item['criadas'].' Criadas' }}
+                    </div>
+
+                    <div class="w-full space-y-3">
+                        <div class="flex justify-between text-xs font-black uppercase text-slate-500">
+                            <span>Eficiência de Combate</span>
+                            <span>{{ number_format($item['taxaVitoria'], 0) }}%</span>
+                        </div>
+                        <div class="w-full h-2.5 bg-white/5 rounded-full overflow-hidden">
+                            <div class="h-full bg-gradient-to-r from-blue-600 to-cyan-400 shadow-[0_0_15px_rgba(37,99,235,0.6)]" style="width: {{ $item['taxaVitoria'] }}%"></div>
+                        </div>
+                    </div>
+                </div>
+            @endforeach
+        </div>
+
+        {{-- Tabela Geral --}}
+        <div class="bg-[#161920] border border-white/10 rounded-[3rem] shadow-2xl overflow-hidden">
+            <div class="px-10 py-8 border-b border-white/5 flex justify-between items-center bg-white/[0.02]">
+                <h3 class="text-lg font-black text-white uppercase tracking-tighter italic">Quadro de Engajamento</h3>
+                <div class="flex gap-4">
+                    @foreach(['total' => 'Geral', 'mensal' => 'Mensal', 'semanal' => 'Semanal'] as $tipo => $rotulo)
+                        <button wire:click="setTipoRanking('{{ $tipo }}')" 
+                            class="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition {{ $tipoRanking === $tipo ? 'bg-blue-600/20 text-blue-400' : 'text-slate-600 hover:text-slate-400' }}">
+                            {{ $rotulo }}
+                        </button>
                     @endforeach
                 </div>
             </div>
-        @endif
-    </div>
-
-    <!-- Filtros de ranking -->
-    <div class="mb-6 flex gap-2 flex-wrap">
-        <button
-            wire:click="setRankingType('total')"
-            class="px-6 py-3 rounded-lg transition font-semibold {{ $rankingType === 'total' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50 border' }}">
-            🏆 Geral
-        </button>
-        <button
-            wire:click="setRankingType('monthly')"
-            class="px-6 py-3 rounded-lg transition font-semibold {{ $rankingType === 'monthly' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50 border' }}">
-            📅 Mensal
-        </button>
-        <button
-            wire:click="setRankingType('weekly')"
-            class="px-6 py-3 rounded-lg transition font-semibold {{ $rankingType === 'weekly' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50 border' }}">
-            📆 Semanal
-        </button>
-    </div>
-
-    <!-- Tabela de rankings -->
-    <div class="bg-white rounded-lg shadow overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase w-20">Pos.</th>
-                        <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase">Jogador</th>
-                        <th class="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase">Vitórias</th>
-                        <th class="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase">Partidas</th>
-                        <th class="px-6 py-4 text-center text-xs font-medium text-gray-500 uppercase">Taxa</th>
-                        <th class="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase">Título</th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    @forelse($topPlayers as $player)
-                        <tr class="{{ $player['user']->id === $user->id ? 'bg-blue-50' : 'hover:bg-gray-50' }} transition">
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="flex items-center">
-                                    @if($player['position'] === 1)
-                                        <span class="text-3xl">🥇</span>
-                                    @elseif($player['position'] === 2)
-                                        <span class="text-3xl">🥈</span>
-                                    @elseif($player['position'] === 3)
-                                        <span class="text-3xl">🥉</span>
-                                    @else
-                                        <span class="text-lg font-bold text-gray-600">#{{ $player['position'] }}</span>
-                                    @endif
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead>
+                        <tr class="bg-white/[0.01]">
+                            <th class="px-10 py-6 text-xs font-black text-slate-500 uppercase tracking-widest">Rank</th>
+                            <th class="px-10 py-6 text-xs font-black text-slate-500 uppercase tracking-widest">Competidor</th>
+                            <th class="px-10 py-6 text-center text-xs font-black text-slate-500 uppercase tracking-widest">Status</th>
+                            <th class="px-10 py-6 text-center text-xs font-black text-slate-500 uppercase tracking-widest">{{ $papelContexto === 'jogador' ? 'Vitórias' : 'Salas' }}</th>
+                            <th class="px-10 py-6 text-right text-xs font-black text-slate-500 uppercase tracking-widest">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-white/5">
+                        @foreach($this->topRanking->skip(3) as $item)
+                        <tr wire:click="abrirDossie({{ $item['usuario']->id }})" 
+                            class="group hover:bg-white/[0.03] cursor-pointer transition-colors {{ $item['ehUsuarioAtual'] ? 'bg-blue-600/5' : '' }}">
+                            <td class="px-10 py-8 text-2xl font-black text-slate-700 italic group-hover:text-blue-500 transition-colors">#{{ str_pad($item['posicao'], 2, '0', STR_PAD_LEFT) }}</td>
+                            <td class="px-10 py-8">
+                                <div class="flex items-center gap-5">
+                                    <div class="w-12 h-12 bg-slate-800 rounded-xl flex items-center justify-center font-black text-white uppercase text-lg group-hover:scale-110 transition">{{ substr($item['usuario']->name, 0, 1) }}</div>
+                                    <div class="font-black text-slate-200 uppercase text-md tracking-tight">{{ $item['usuario']->name }}</div>
                                 </div>
                             </td>
-                            <td class="px-6 py-4">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold">
-                                        {{ substr($player['user']->name ?? '', 0, 1) ?: '?' }}
-                                    </div>
-                                    <div>
-                                        <div class="font-semibold text-gray-900">
-                                            {{ $player['user']->name ?? 'Usuário' }}
-                                            @if($player['user']->id === $user->id)
-                                                <span class="text-blue-600 text-sm">(Você)</span>
-                                            @endif
-                                        </div>
-                                        <div class="text-sm text-gray-500">{{ $player['user']->email ?? '-' }}</div>
-                                    </div>
-                                </div>
+                            <td class="px-10 py-8 text-center">
+                                <span class="px-4 py-1.5 bg-emerald-500/10 text-emerald-500 text-[10px] font-black uppercase rounded-full border border-emerald-500/20">{{ $item['status'] }}</span>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-center">
-                                <div class="text-lg font-bold text-blue-600">{{ $player['wins'] }}</div>
+                            <td class="px-10 py-8 text-center font-black text-white text-xl tabular-nums">
+                                {{ $papelContexto === 'jogador' ? $item['vitorias'] : $item['criadas'] }}
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-center">
-                                <div class="text-gray-900">{{ $player['games'] }}</div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-center">
-                                <div class="text-gray-900 font-semibold">
-                                    @if($player['games'] > 0)
-                                        {{ number_format(($player['wins'] / $player['games']) * 100, 1) }}%
-                                    @else
-                                        -
-                                    @endif
-                                </div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                @php($badge = $this->getTitleBadge($player['titles']))
-                                @if($badge)
-                                    <span class="px-3 py-1 {{ $badge['color'] }} rounded-full text-xs font-semibold inline-block">
-                                        {{ $badge['name'] }}
-                                    </span>
-                                @else
-                                    <span class="text-gray-400 text-sm">-</span>
-                                @endif
+                            <td class="px-10 py-8 text-right">
+                                <button class="text-xs font-black text-blue-500 uppercase tracking-widest italic group-hover:underline">Analisar Dossiê</button>
                             </td>
                         </tr>
-                    @empty
-                        <tr>
-                            <td colspan="6" class="px-6 py-16 text-center text-gray-500">
-                                <div class="text-lg font-semibold mb-2">Nenhum ranking disponível ainda</div>
-                                <p class="text-sm">Jogue e vença para aparecer aqui!</p>
-                            </td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
         </div>
+
+        {{-- Botão Flutuante --}}
+        <button wire:click="alternarModalPatentes" class="fixed bottom-10 right-10 bg-blue-600 hover:bg-blue-500 text-white px-8 py-5 rounded-[2rem] shadow-[0_15px_50px_rgba(37,99,235,0.4)] transition-all hover:scale-105 z-40 flex items-center gap-3">
+            <span class="text-xl">📖</span>
+            <span class="font-black text-xs uppercase tracking-[0.2em]">Manual de Patentes</span>
+        </button>
     </div>
 
-    <!-- Como ganhar títulos -->
-    <div class="mt-8 bg-white rounded-lg shadow p-6">
-        <h2 class="text-xl font-semibold mb-4">Como Ganhar Títulos</h2>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div class="border rounded-lg p-4 text-center">
-                <div class="text-3xl mb-2">🌱</div>
-                <div class="font-semibold mb-1">Iniciante</div>
-                <div class="text-sm text-gray-600">1 vitória</div>
+    {{-- ============================================= --}}
+    {{-- MODAL: DOSSIÊ DO JOGADOR --}}
+    {{-- ============================================= --}}
+    @if($jogadorSelecionado)
+    <div class="fixed inset-0 z-[110] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/95 backdrop-blur-md" wire:click="fecharDossie"></div>
+        <div class="relative bg-[#0f1115] w-full max-w-3xl rounded-[4rem] border border-blue-600/30 overflow-hidden shadow-[0_0_120px_rgba(37,99,235,0.15)] animate-in fade-in zoom-in duration-300">
+            
+            <div class="relative h-48 bg-gradient-to-r from-blue-900/40 to-purple-900/40 border-b border-white/5">
+                <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
             </div>
-            <div class="border rounded-lg p-4 text-center">
-                <div class="text-3xl mb-2">⭐</div>
-                <div class="font-semibold mb-1">Experiente</div>
-                <div class="text-sm text-gray-600">10 vitórias</div>
-            </div>
-            <div class="border rounded-lg p-4 text-center">
-                <div class="text-3xl mb-2">👑</div>
-                <div class="font-semibold mb-1">Mestre</div>
-                <div class="text-sm text-gray-600">50 vitórias</div>
-            </div>
-            <div class="border rounded-lg p-4 text-center">
-                <div class="text-3xl mb-2">🏆</div>
-                <div class="font-semibold mb-1">Lenda</div>
-                <div class="text-sm text-gray-600">100 vitórias</div>
+
+            <div class="px-12 pb-12">
+                <div class="relative -mt-24 mb-10 flex flex-col md:flex-row justify-between items-center md:items-end gap-8">
+                    <div class="relative">
+                        <div class="absolute -inset-1 bg-blue-600 rounded-[3rem] blur opacity-40"></div>
+                        <div class="relative w-44 h-44 bg-[#0f1115] rounded-[2.8rem] p-3 border border-blue-500/50">
+                            <div class="w-full h-full bg-blue-600 rounded-[2.2rem] flex items-center justify-center text-7xl font-black text-white uppercase italic">
+                                {{ substr($jogadorSelecionado->name, 0, 1) }}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-center md:text-right">
+                        <div class="inline-flex items-center gap-2 px-4 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-full mb-3">
+                            <span class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                            <span class="text-blue-400 text-xs font-black uppercase tracking-[0.2em]">Perfil Verificado</span>
+                        </div>
+                        <h3 class="text-5xl font-black text-white uppercase italic tracking-tighter">{{ $jogadorSelecionado->name }}</h3>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-10 mb-10">
+                    <div class="space-y-8">
+                        <div>
+                            <div class="text-xs font-black text-slate-500 uppercase mb-4 tracking-[0.3em] italic">🏅 Patentes do Operativo</div>
+                            <div class="flex flex-wrap gap-3">
+                                @forelse($jogadorSelecionado->titles as $t)
+                                    <div class="px-5 py-3 bg-blue-600/10 border border-blue-500/30 rounded-2xl">
+                                        <span class="text-sm font-black text-blue-400 uppercase tracking-widest">{{ $this->traduzir($t->type) }}</span>
+                                    </div>
+                                @empty
+                                    <span class="text-slate-600 text-sm font-bold italic uppercase">Nenhuma conquista registrada.</span>
+                                @endforelse
+                            </div>
+                        </div>
+
+                        <div class="p-8 bg-white/[0.03] border border-white/5 rounded-[2.5rem]">
+                            <div class="text-xs font-black text-slate-500 uppercase mb-6 tracking-[0.2em]">📈 Performance em Tempo Real</div>
+                            <div class="space-y-6">
+                                @php
+                                    $rankInfo = $jogadorSelecionado->rank;
+                                    $vits = $rankInfo?->total_wins ?? 0;
+                                    $parts = max($rankInfo?->total_games ?? 0, $vits);
+                                    $tx = $parts > 0 ? ($vits / $parts) * 100 : 0;
+                                @endphp
+                                <div class="flex justify-between items-end">
+                                    <span class="text-xs font-black text-slate-400 uppercase">Aproveitamento Final</span>
+                                    <span class="text-3xl font-black text-white">{{ number_format($tx, 1) }}%</span>
+                                </div>
+                                <div class="w-full h-3 bg-white/5 rounded-full overflow-hidden">
+                                    <div class="h-full bg-gradient-to-r from-blue-600 to-cyan-400 shadow-[0_0_15px_rgba(37,99,235,0.4)]" style="width: {{ $tx }}%"></div>
+                                </div>
+                                <div class="grid grid-cols-2 gap-6 pt-4">
+                                    <div class="bg-white/5 p-4 rounded-2xl text-center">
+                                        <div class="text-[10px] font-black text-slate-600 uppercase mb-1">Total de Partidas</div>
+                                        <div class="text-2xl font-black text-white italic">{{ $parts }}</div>
+                                    </div>
+                                    <div class="bg-blue-600/5 p-4 rounded-2xl text-center border border-blue-600/10">
+                                        <div class="text-[10px] font-black text-slate-600 uppercase mb-1">Total de Vitórias</div>
+                                        <div class="text-2xl font-black text-blue-500 italic">{{ $vits }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="p-8 bg-white/[0.03] border border-white/5 rounded-[2.5rem]">
+                        <div class="text-xs font-black text-slate-500 uppercase mb-6 tracking-[0.2em]">🕒 Vitórias Recentes Confiadas</div>
+                        <div class="space-y-4">
+                            @for($i=1; $i<=3; $i++)
+                                <div class="flex items-center gap-5 p-4 bg-[#161920] border border-white/5 rounded-3xl group">
+                                    <div class="w-12 h-12 bg-green-500/10 rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition">🏆</div>
+                                    <div class="flex-1">
+                                        <div class="text-xs font-black text-white uppercase tracking-tight">Sucesso Confirmado</div>
+                                        <div class="text-[10px] font-bold text-slate-500 uppercase">Operação Alpha-{{rand(100,999)}}</div>
+                                    </div>
+                                    <div class="text-green-500 font-black text-xs italic">+XP</div>
+                                </div>
+                            @endfor
+                            <div class="pt-6 border-t border-white/5">
+                                <p class="text-[10px] text-slate-500 font-bold leading-relaxed italic uppercase">
+                                    Registro oficial iniciado em {{ $jogadorSelecionado->created_at->format('d/m/Y') }}. 
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button wire:click="fecharDossie" class="w-full py-6 bg-white/5 hover:bg-white/10 border border-white/10 rounded-3xl text-sm font-black uppercase tracking-[0.4em] text-white transition-all active:scale-95 shadow-xl">
+                    Fechar Arquivo do Gladiador
+                </button>
             </div>
         </div>
     </div>
+    @endif
+
+    {{-- MODAL: GUIA DE PATENTES --}}
+    @if($mostrarModalPatentes)
+    <div class="fixed inset-0 z-[120] flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/90 backdrop-blur-xl" wire:click="alternarModalPatentes"></div>
+        <div class="relative bg-[#161920] w-full max-w-2xl rounded-[4rem] border border-white/10 p-12 shadow-2xl">
+            <h3 class="text-4xl font-black text-white italic uppercase tracking-tighter mb-10">Glossário de <span class="text-blue-500">Patentes</span></h3>
+            <div class="space-y-8 max-h-[50vh] overflow-y-auto pr-6 no-scrollbar">
+                @foreach($this->getDefinicoesPatentes() as $def)
+                    <div class="flex gap-8 group">
+                        <div class="w-20 h-20 flex-shrink-0 {{ $def['color'] }} rounded-3xl flex items-center justify-center text-4xl shadow-2xl transition-transform group-hover:scale-110">{{ $def['icon'] }}</div>
+                        <div class="flex flex-col justify-center">
+                            <div class="font-black text-white uppercase text-xl tracking-widest mb-1">{{ $def['name'] }}</div>
+                            <p class="text-sm text-slate-500 font-medium leading-relaxed">{{ $def['desc'] }}</p>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+            <button wire:click="alternarModalPatentes" class="w-full mt-12 py-6 bg-blue-600 hover:bg-blue-500 text-white rounded-3xl font-black uppercase text-xs tracking-[0.3em] shadow-2xl transition-all">Sair do Manual</button>
+        </div>
+    </div>
+    @endif
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
 </div>

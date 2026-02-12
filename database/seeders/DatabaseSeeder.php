@@ -21,12 +21,15 @@ class DatabaseSeeder extends Seeder
             GamePackageSeeder::class,
             PackageSeeder::class,
         ]);
-         User::firstOrCreate(
+        $user = User::firstOrCreate(
             ['email' => 'reginaldo@reginaldo.com'],
             [
                 'name' => 'Reginaldo',
                 'password' => Hash::make('scrolllock'),
             ]
         );
+
+        // Garante wallet
+        $user->wallet()->firstOrCreate([]);
     }
 }

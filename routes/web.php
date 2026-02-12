@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Display\GameDisplay;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'welcome');
@@ -7,24 +8,25 @@ Route::view('/', 'welcome');
 Route::middleware(['auth'])->group(function () {
     Route::livewire('/dashboard', 'pages::dashboard.index')->name('dashboard');
 
-    // Wallet ...
+    // Wallet
     Route::livewire('/wallet', 'pages::wallet.index')->name('wallet.index');
     Route::livewire('/wallet/transactions', 'pages::wallet.transactions')->name('wallet.transactions');
 
-    // Games
+    // Games (HOST)
     Route::livewire('/games', 'pages::games.index')->name('games.index');
     Route::livewire('/games/create', 'pages::games.create')->name('games.create');
-    Route::livewire('/games/{game:uuid}/edit', 'pages::games.edit')->name('games.edit');
+    Route::livewire('/games/{uuid}/edit', 'pages::games.edit')->name('games.edit');
+    Route::livewire('/games/{uuid}', 'pages::games.play')->name('games.play');
 
-    // ← Rota para JOGAR / gerenciar a partida (usa UUID)
-    Route::livewire('/games/{game:uuid}', 'pages::games.play')->name('games.play');
+    // Join (requer auth)
+    Route::livewire('/join/{invite_code}', 'pages::games.join')->name('games.join');
 
     // Rankings
     Route::livewire('/rankings', 'pages::rankings.index')->name('rankings.index');
 });
 
-// Public / Join (sem auth, ou com auth opcional)
-Route::livewire('/join/{invite_code}', 'pages::games.join')->name('games.join');
-Route::livewire('/games/host/{game}', 'pages::games.host')->name('games.host');
+// Rota PÚBLICA para tela de display (TV/telão) - não requer autenticação
+Route::livewire('/display/{uuid}', 'pages::games.display')->name('games.display');
+//Route::get('/display/{uuid}', GameDisplay::class)->name('games.display');
 
 require __DIR__.'/auth.php';

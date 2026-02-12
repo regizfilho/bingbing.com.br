@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Draw extends Model
 {
-    protected $fillable = ['game_id', 'number', 'sequence', 'drawn_at'];
+    protected $fillable = ['game_id', 'number', 'sequence',"round_number", 'drawn_at'];
     
     protected $casts = ['drawn_at' => 'datetime'];
 

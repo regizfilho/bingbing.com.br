@@ -7,18 +7,28 @@ use Illuminate\Database\Eloquent\Model;
 class GamePackage extends Model
 {
     protected $fillable = [
-        'name', 'slug', 'cost_credits', 'max_players', 'max_cards_per_player',
-        'max_winners_per_prize', 'can_customize_prizes', 'features',
-        'is_free', 'is_active', 'order'
+        'name',
+        'slug',
+        'cost_credits',
+        'max_players',
+        'max_cards_per_player',
+        'max_winners_per_prize',
+        'can_customize_prizes',
+        'features',
+        'is_free',
+        'is_active',
+        'order'
     ];
 
     protected $casts = [
         'cost_credits' => 'decimal:2',
         'can_customize_prizes' => 'boolean',
-        'features' => 'array',
+        'features' => 'array',          // já existente
+        'allowed_card_sizes' => 'array', // já existente
         'is_free' => 'boolean',
         'is_active' => 'boolean',
     ];
+
 
     public function games()
     {
