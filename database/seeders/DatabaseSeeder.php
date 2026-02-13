@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             PackageSeeder::class,
             FirewallSeeder::class,
             PageSeeder::class,
+            CouponSeeder::class,
         ]);
 
         $user = User::updateOrCreate(

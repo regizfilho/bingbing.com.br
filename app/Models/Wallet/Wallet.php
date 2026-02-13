@@ -22,23 +22,29 @@ class Wallet extends Model
         return $this->hasMany(Transaction::class);
     }
 
-    public function credit(float $amount, string $description, $transactionable = null)
-    {
-        return DB::transaction(function () use ($amount, $description, $transactionable) {
-            $this->increment('balance', $amount);
-            $this->refresh();
+    public function credit(
+    float $amount,
+    string $description,
+    $transactionable = null,
+    ?int $couponId = null
+) {
+    return DB::transaction(function () use ($amount, $description, $transactionable, $couponId) {
 
-            return $this->transactions()->create([
-                'type' => 'credit',
-                'amount' => $amount,
-                'balance_after' => $this->balance,
-                'description' => $description,
-                'transactionable_type' => $transactionable ? get_class($transactionable) : null,
-                'transactionable_id' => $transactionable?->id,
-                'status' => 'completed',
-            ]);
-        });
-    }
+        $this->increment('balance', $amount);
+
+        return $this->transactions()->create([
+            'type' => 'credit',
+            'amount' => $amount,
+            'balance_after' => $this->fresh()->balance,
+            'description' => $description,
+            'transactionable_type' => $transactionable ? get_class($transactionable) : null,
+            'transactionable_id' => $transactionable?->id,
+            'coupon_id' => $couponId,
+            'status' => 'completed',
+        ]);
+    });
+}
+
 
     public function debit(float $amount, string $description, $transactionable = null)
     {

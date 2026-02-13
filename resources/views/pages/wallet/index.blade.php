@@ -3,14 +3,24 @@
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use App\Models\Wallet\Package;
+use App\Models\Coupon;
+use App\Models\CouponUser;
 use Livewire\Attributes\Layout;
+use Illuminate\Support\Facades\DB;
 
 new #[Layout('layouts.app')] class extends Component {
+
     public ?int $selectedPackageId = null;
     public bool $showConfirmation = false;
 
+    public string $couponCode = '';
+    public ?Coupon $appliedCoupon = null;
+    public float $discountAmount = 0;
+
     #[Computed]
-    public function user() { return auth()->user(); }
+    public function user() { 
+        return auth()->user(); 
+    }
 
     #[Computed]
     public function walletBalance()
@@ -26,11 +36,25 @@ new #[Layout('layouts.app')] class extends Component {
     #[Computed]
     public function selectedPackage(): ?Package
     {
-        return $this->selectedPackageId ? Package::find($this->selectedPackageId) : null;
+        return $this->selectedPackageId 
+            ? Package::find($this->selectedPackageId) 
+            : null;
+    }
+
+    #[Computed]
+    public function finalPrice(): float
+    {
+        if (!$this->selectedPackage) return 0;
+
+        return max(
+            0,
+            $this->selectedPackage->price_brl - $this->discountAmount
+        );
     }
 
     public function selectPackage(int $packageId): void
     {
+        $this->reset(['couponCode','appliedCoupon','discountAmount']);
         $this->selectedPackageId = $packageId;
         $this->showConfirmation = true;
     }
@@ -39,38 +63,118 @@ new #[Layout('layouts.app')] class extends Component {
     {
         $this->selectedPackageId = null;
         $this->showConfirmation = false;
+        $this->reset(['couponCode','appliedCoupon','discountAmount']);
     }
 
-    public function confirmPurchase(): void
+    public function applyCoupon(): void
     {
-        if (!$this->selectedPackage) {
-            $this->dispatch('notify', type: 'error', text: 'Pacote inválido.');
+        if (!$this->selectedPackage) return;
+
+        $coupon = Coupon::where(
+            'code',
+            strtoupper(trim($this->couponCode))
+        )->first();
+
+        if (!$coupon) {
+            $this->dispatch('notify', type: 'error', text: 'Cupom não encontrado.');
             return;
         }
 
-        try {
-            // Garante que a carteira existe
-            $wallet = $this->user->wallet ?: $this->user->wallet()->create(['balance' => 0]);
+        $validation = $coupon->validateForUser(
+            $this->user,
+            $this->selectedPackage->price_brl
+        );
 
-            $wallet->credit(
-                $this->selectedPackage->credits,
-                "Recarga: {$this->selectedPackage->name}",
-                $this->selectedPackage
-            );
-
-            $this->dispatch('notify', 
-                type: 'success', 
-                text: "Recarga realizada! +{$this->selectedPackage->credits} créditos adicionados."
-            );
-            
-            $this->cancelPurchase();
-            
-        } catch (\Exception $e) {
-            $this->dispatch('notify', type: 'error', text: 'Erro na transação: ' . $e->getMessage());
+        if ($validation !== true) {
+            $this->dispatch('notify', type: 'error', text: $validation);
+            return;
         }
+
+        $this->discountAmount = $coupon->type === 'percent'
+            ? ($this->selectedPackage->price_brl * $coupon->value) / 100
+            : $coupon->value;
+
+        $this->appliedCoupon = $coupon;
+
+        $this->dispatch('notify', type: 'success', text: 'Cupom aplicado com sucesso!');
     }
+
+public function confirmPurchase(): void
+{
+    if (!$this->selectedPackage) {
+        $this->dispatch('notify', type: 'error', text: 'Pacote inválido.');
+        return;
+    }
+
+    try {
+
+        DB::transaction(function () {
+
+            $wallet = $this->user->wallet 
+                ?: $this->user->wallet()->create(['balance' => 0]);
+
+            $originalAmount = $this->selectedPackage->price_brl;
+            $discountAmount = $this->discountAmount;
+            $finalAmount    = $this->finalPrice;
+
+            // 🔥 CRIA A TRANSAÇÃO MANUALMENTE
+            $wallet->balance += $this->selectedPackage->credits;
+            $wallet->save();
+
+            $wallet->transactions()->create([
+                'uuid' => \Str::uuid(),
+                'type' => 'credit',
+                'amount' => $this->selectedPackage->credits,
+                'balance_after' => $wallet->balance,
+                'description' => "Recarga: {$this->selectedPackage->name}",
+                'transactionable_type' => Package::class,
+                'transactionable_id' => $this->selectedPackage->id,
+                'status' => 'completed',
+                'coupon_id' => $this->appliedCoupon?->id,
+
+                // 🔥 AGORA SALVANDO OS VALORES FINANCEIROS
+                'original_amount' => $originalAmount,
+                'discount_amount' => $discountAmount,
+                'final_amount' => $finalAmount,
+            ]);
+
+            // 🔥 Registro de uso do cupom
+            if ($this->appliedCoupon) {
+
+                CouponUser::create([
+                    'coupon_id' => $this->appliedCoupon->id,
+                    'user_id' => $this->user->id,
+                    'used_at' => now(),
+                    'order_value' => $originalAmount,
+                    'discount_amount' => $discountAmount,
+                    'ip_address' => request()->ip(),
+                ]);
+
+                $this->appliedCoupon->increment('used_count');
+            }
+        });
+
+        $this->dispatch(
+            'notify', 
+            type: 'success', 
+            text: "Recarga realizada! +{$this->selectedPackage->credits} créditos adicionados."
+        );
+
+        $this->cancelPurchase();
+
+    } catch (\Exception $e) {
+        $this->dispatch(
+            'notify', 
+            type: 'error', 
+            text: 'Erro na transação: ' . $e->getMessage()
+        );
+    }
+}
+
 };
 ?>
+
+
 
 <div class="min-h-screen bg-[#05070a] text-slate-200 pb-24 selection:bg-blue-500/30 overflow-x-hidden relative">
     
@@ -257,6 +361,37 @@ new #[Layout('layouts.app')] class extends Component {
                             <span class="text-4xl font-black text-white italic tracking-tighter">R$ {{ number_format($this->selectedPackage->price_brl, 2, ',', '.') }}</span>
                         </div>
                     </div>
+
+                    {{-- Cupom --}}
+<div class="mt-6 space-y-4">
+    <input type="text"
+        wire:model.defer="couponCode"
+        placeholder="Digite seu cupom"
+        class="w-full h-14 bg-white/[0.02] border border-white/5 rounded-2xl px-6 text-xs font-black uppercase tracking-[0.3em] italic text-white focus:border-blue-500 outline-none">
+
+    <button wire:click="applyCoupon"
+        class="w-full py-4 bg-white/[0.02] hover:bg-blue-600 border border-white/5 hover:border-blue-500 rounded-2xl text-[10px] font-black uppercase tracking-[0.4em] italic transition-all">
+        APLICAR CUPOM
+    </button>
+
+    @if($appliedCoupon)
+        <div class="text-center text-[10px] font-black uppercase tracking-widest italic text-emerald-500">
+            Cupom {{ $appliedCoupon->code }} aplicado (-R$ {{ number_format($discountAmount,2,',','.') }})
+        </div>
+    @endif
+
+    @if($discountAmount > 0)
+        <div class="flex justify-between items-center pt-4 border-t border-white/5">
+            <span class="text-[9px] font-black text-blue-400 uppercase tracking-widest italic">
+                Total com Desconto
+            </span>
+            <span class="text-3xl font-black text-white italic tracking-tighter">
+                R$ {{ number_format($this->finalPrice,2,',','.') }}
+            </span>
+        </div>
+    @endif
+</div>
+
 
                     <div class="space-y-4">
                         <button wire:click="confirmPurchase"

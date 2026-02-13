@@ -20,6 +20,7 @@ Route::middleware(['auth'])->group(function () {
         Route::livewire('/', 'pages::admin.index')->name('admin');
         Route::livewire('/pages', 'pages::admin.pages.index')->name('admin.pages.index');
         Route::livewire('/security', 'pages::admin.security.index')->name('admin.security.index');
+        Route::livewire('/marketing/coupon', 'pages::admin.marketing.coupon')->name('admin.marketing.coupon');
     });
 
 
