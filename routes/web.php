@@ -7,14 +7,20 @@ use Illuminate\Support\Facades\Route;
 Route::view('/', 'leading');
 
 Route::middleware('guest')->group(function () {
-Route::livewire('/login', 'pages::auth.login')->name('login');
-Route::livewire('/register', 'pages::auth.register')->name('register');
-Route::livewire('/forgot-password', 'pages::auth.forgot-password')->name('forgot-request');
-Route::livewire('reset-password/{token}', 'pages::auth.reset-password')
+    Route::livewire('/login', 'pages::auth.login')->name('login');
+    Route::livewire('/register', 'pages::auth.register')->name('register');
+    Route::livewire('/forgot-password', 'pages::auth.forgot-password')->name('forgot-request');
+    Route::livewire('reset-password/{token}', 'pages::auth.reset-password')
         ->name('password.reset');
 });
 
 Route::middleware(['auth'])->group(function () {
+
+    Route::middleware(['firewall'])->group(function () {
+        Route::livewire('/', 'pages::admin.index')->name('admin');
+        Route::livewire('/security', 'pages::admin.security.index')->name('admin.security.index');
+    });
+
 
     Route::livewire('/player/profile/{uuid?}', 'pages::player.profile')->name('player.profile');
 
@@ -44,4 +50,4 @@ Route::post('/logout', [SessionController::class, 'destroy'])
     ->middleware('auth')
     ->name('logout');
 
-require __DIR__.'/auth.php';
+require __DIR__ . '/auth.php';

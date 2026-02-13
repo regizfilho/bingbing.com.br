@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             GamePackageSeeder::class,
             PackageSeeder::class,
+            FirewallSeeder::class,
         ]);
 
         $user = User::updateOrCreate(
