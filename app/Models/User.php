@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Wallet\Wallet;
 use App\Models\Game\Game;
 use App\Models\Game\Player;
@@ -14,15 +15,41 @@ use App\Models\Ranking\Title;
 
 class User extends Authenticatable
 {
-    use Notifiable, HasUuids;
+    use Notifiable, HasUuids, SoftDeletes;
 
-    protected $fillable = ['name', 'email', 'password', 'uuid'];
+    protected $fillable = [
+        'name',
+        'nickname',
+        'email',
+        'password',
+        'uuid',
+        'avatar_path',
+        'phone_number',
+        'document',
+        'birth_date',
+        'gender',
+        'country',
+        'state',
+        'city',
+        'language',
+        'instagram',
+        'bio',
+        'role',
+        'status',
+        'ban_reason',
+        'is_verified'
+    ];
     
-    protected $hidden = ['password', 'remember_token'];
+    protected $hidden = [
+        'password', 
+        'remember_token'
+    ];
     
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'birth_date' => 'date',
+        'is_verified' => 'boolean',
     ];
 
     public function uniqueIds()
@@ -38,43 +65,20 @@ class User extends Authenticatable
         });
     }
 
-    public function wallet()
-    {
-        return $this->hasOne(Wallet::class);
+    // Relacionamentos
+    public function wallet() { return $this->hasOne(Wallet::class); }
+    public function rank() { return $this->hasOne(Rank::class); }
+    public function titles() { return $this->hasMany(Title::class); }
+    public function wins() { return $this->hasMany(Winner::class); }
+    public function players() { return $this->hasMany(Player::class); }
+    
+    public function createdGames() { 
+        return $this->hasMany(Game::class, 'creator_id'); 
     }
 
-    public function createdGames()
-    {
-        return $this->hasMany(Game::class, 'creator_id');
-    }
-
-    public function playedGames()
-    {
+    public function playedGames() {
         return $this->hasManyThrough(Game::class, Player::class, 'user_id', 'id', 'id', 'game_id');
     }
 
-    public function players()
-    {
-        return $this->hasMany(Player::class);
-    }
-
-    public function wins()
-    {
-        return $this->hasMany(Winner::class);
-    }
-
-    public function rank()
-    {
-        return $this->hasOne(Rank::class);
-    }
-
-    public function titles()
-    {
-        return $this->hasMany(Title::class);
-    }
-
-    public function getRouteKeyName()
-    {
-        return 'uuid';
-    }
+    public function getRouteKeyName() { return 'uuid'; }
 }

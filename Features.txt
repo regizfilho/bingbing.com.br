@@ -1,0 +1,239 @@
+Perfeito. Vou organizar isso como **backlog estruturado**, removendo redundâncias e separando por módulos (Usuário, Administração, Financeiro, Segurança, etc.).
+Também deixei em formato mais técnico, pensando em arquitetura limpa (sei que você costuma organizar bem seus projetos).
+
+---
+
+# 📌 1️⃣ Módulo: Usuário (Conta & Perfil)
+
+## 🔹 Perfil do Usuário
+
+Criar página de perfil com:
+
+* Foto/avatar
+* Nickname (nick jogador)
+* Idioma
+* Cidade
+* Estado
+* País
+* Sexo
+* Idade
+* Número de celular
+* Role:
+
+  * admin
+  * usuário comum
+* Status da conta:
+
+  * ativo
+  * banido
+* Campo de observação administrativa (opcional)
+
+---
+
+## 🔹 Gestão da Conta
+
+* Soft delete de conta (permitir usuário deletar conta)
+* Sistema de banimento:
+
+  * Banimento manual via admin
+  * Campo `banned_at`
+  * Campo `ban_reason`
+  * Middleware bloqueando login se banido
+
+---
+
+## 🔹 Sistema de Verificação
+
+* Selo de verificado
+
+  * Flag booleana `verified`
+  * Exibição visual no perfil
+  * Controle exclusivo do admin
+
+---
+
+# 🎟 2️⃣ Sistema de Cupons
+
+* Criar cupons com:
+
+  * Código
+  * Tipo (percentual ou valor fixo)
+  * Data de validade
+  * Limite de uso
+  * Status ativo/inativo
+* Relacionamento cupom ↔ usuário
+* Histórico de uso
+* Aplicável na compra de créditos/pacotes
+
+---
+
+# 💰 3️⃣ Sistema de Créditos & Pacotes
+
+## 🔹 Pacotes
+
+* Criar / editar / remover pacotes
+
+  * Free
+  * Basic
+  * Premium
+* Valor
+* Quantidade de créditos
+* Status ativo/inativo
+
+---
+
+## 🔹 Gestão de Créditos
+
+* Adicionar crédito manualmente
+* Remover crédito
+* Histórico completo de alterações
+
+  * tipo (compra, admin, reembolso, uso em partida)
+  * valor
+  * data
+  * responsável (admin ou sistema)
+
+---
+
+## 🔹 Reembolso
+
+* Solicitação de reembolso
+* Aprovação / Reprovação pelo admin
+* Registro de histórico
+* Ajuste automático de créditos
+
+---
+
+# 📊 4️⃣ Admin – Dashboard & Analytics
+
+## 🔹 Dashboard Geral
+
+Indicadores principais:
+
+* Quantidade total de contas
+* Contas criadas hoje
+* Usuários online (contador em tempo real)
+* Quantidade de partidas
+* Créditos em circulação
+* Créditos comprados
+* Faturamento:
+
+  * Diário
+  * Mensal
+  * Anual
+* Pacotes mais vendidos
+
+---
+
+## 🔹 Usuários em Tempo Real
+
+* Contador ao vivo:
+
+  * Usuários online
+  * Novos registros
+  * Origem do tráfego (links de origem)
+
+---
+
+## 🔹 Gestão Completa de Usuários
+
+Visualizar:
+
+* Perfil completo
+* Último acesso
+* Estatísticas gerais
+* Créditos atuais
+* Total gasto
+* Partidas:
+
+  * free
+  * basic
+  * premium
+* Ranking
+* Histórico financeiro
+* Histórico de créditos
+
+---
+
+# 🛡 5️⃣ Segurança
+
+## 🔹 Firewall para Área Admin
+
+* Middleware que permite acesso apenas:
+
+  * Lista branca IPv4
+  * Lista branca IPv6
+* Configurável via `.env`
+* Log de tentativas bloqueadas
+
+---
+
+# 📜 6️⃣ Legal & Compliance
+
+* Página de:
+
+  * Termos de Uso
+  * Política de Privacidade
+* Aceite obrigatório no cadastro
+* Campo `terms_accepted_at`
+
+---
+
+# 💬 7️⃣ Sistema de Feedback
+
+* Usuário pode enviar:
+
+  * Sugestões
+  * Elogios
+  * Melhorias
+  * Reportar problemas
+* Status:
+
+  * Novo
+  * Em análise
+  * Resolvido
+* Resposta do admin (opcional)
+
+---
+
+# 🧠 Estrutura Final Organizada
+
+```
+Usuário
+ ├── Perfil
+ ├── Verificação
+ ├── Banimento
+ └── Exclusão (Soft Delete)
+
+Financeiro
+ ├── Pacotes
+ ├── Créditos
+ ├── Cupons
+ └── Reembolsos
+
+Admin
+ ├── Dashboard
+ ├── Analytics
+ ├── Gestão de Usuários
+ └── Monitoramento em tempo real
+
+Segurança
+ └── Firewall Admin (IP Whitelist)
+
+Legal
+ └── Termos e Políticas
+
+Engajamento
+ └── Sistema de Feedback
+```
+
+---
+
+Se você quiser, posso:
+
+* Transformar isso em **roadmap por prioridade**
+* Ou organizar como **MVP → Fase 2 → Fase 3**
+* Ou montar como **modelo de banco de dados sugerido**
+* Ou estruturar como **epics + tasks estilo Jira**
+
+Qual formato você prefere?

@@ -44,73 +44,62 @@ new #[Layout('layouts.display')] class extends Component {
             ->firstOrFail();
     }
 
-private function loadGameData(): void
-{
-    $round = $this->game->current_round;
+    private function loadGameData(): void
+    {
+        $round = $this->game->current_round;
 
-    // 1. PARA O GRID DE 75 NÚMEROS - ordem ASC
-    $this->drawnNumbers = $this->game->draws()
-        ->where('round_number', $round)
-        ->orderBy('number', 'asc')
-        ->pluck('number')
-        ->toArray();
+        $this->drawnNumbers = $this->game->draws()
+            ->where('round_number', $round)
+            ->orderBy('number', 'asc')
+            ->pluck('number')
+            ->toArray();
 
-    // 2. PARA O HISTÓRICO E ÚLTIMO NÚMERO - USAR CREATED_AT DESC
-    $drawsDesc = $this->game->draws()
-        ->where('round_number', $round)
-        ->orderBy('created_at', 'desc')  // MUDAR DE 'id' PARA 'created_at'
-        ->get();
+        $drawsDesc = $this->game->draws()
+            ->where('round_number', $round)
+            ->orderBy('created_at', 'desc')
+            ->get();
 
-    // DEBUG - Verificar ordem
-    \Log::info('Draws em ordem DESC:', $drawsDesc->pluck('number', 'created_at')->toArray());
+        $latest = $drawsDesc->first();
+        $this->lastDrawId = $latest ? $latest->id : null;
 
-    // Último sorteado = primeiro da coleção DESC
-    $latest = $drawsDesc->first();
-    $this->lastDrawId = $latest ? $latest->id : null;
+        $this->currentDraws = $drawsDesc
+            ->take(10)
+            ->map(fn($draw) => [
+                'id' => $draw->id,
+                'number' => $draw->number,
+                'created_at' => $draw->created_at->format('H:i:s'),
+                'unique_key' => "draw-{$draw->id}-" . $draw->created_at->timestamp,
+            ])
+            ->values()
+            ->toArray();
 
-    // Pega os 10 primeiros (mais recentes)
-    $this->currentDraws = $drawsDesc
-        ->take(10)
-        ->map(fn($draw) => [
-            'id' => $draw->id,
-            'number' => $draw->number,
-            'created_at' => $draw->created_at->format('H:i:s'), // DEBUG
-            'unique_key' => "draw-{$draw->id}-" . $draw->created_at->timestamp,
-        ])
-        ->values()
-        ->toArray();
+        $this->roundWinners = Winner::where('game_id', $this->game->id)
+            ->where('round_number', $round)
+            ->with('user')
+            ->latest()
+            ->get()
+            ->map(fn($w) => ['name' => $w->user->name])
+            ->toArray();
 
-    // DEBUG - Verificar currentDraws
-    \Log::info('currentDraws[0]:', [$this->currentDraws[0] ?? null]);
-
-    // 3. Vencedores e prêmios
-    $this->roundWinners = Winner::where('game_id', $this->game->id)
-        ->where('round_number', $round)
-        ->with('user')
-        ->latest()
-        ->get()
-        ->map(fn($w) => ['name' => $w->user->name])
-        ->toArray();
-
-    $this->prizes = Prize::where('game_id', $this->game->id)
-        ->orderBy('position', 'asc')
-        ->get()
-        ->map(function ($p) {
-            $winnerEntry = Winner::where('prize_id', $p->id)->with('user')->first();
-            return [
-                'id' => $p->id,
-                'name' => $p->name,
-                'position' => $p->position,
-                'winner' => $winnerEntry ? $winnerEntry->user->name : null,
-            ];
-        })
-        ->toArray();
-}
+        $this->prizes = Prize::where('game_id', $this->game->id)
+            ->orderBy('position', 'asc')
+            ->get()
+            ->map(function ($p) {
+                $winnerEntry = Winner::where('prize_id', $p->id)->with('user')->first();
+                return [
+                    'id' => $p->id,
+                    'name' => $p->name,
+                    'position' => $p->position,
+                    'winner' => $winnerEntry ? $winnerEntry->user->name : null,
+                ];
+            })
+            ->toArray();
+    }
 
     public function getStatusColorProperty(): string
     {
         return match ($this->game->status) {
-            'active' => 'emerald',
+            'active' => 'blue',
             'waiting' => 'amber',
             'finished' => 'slate',
             'paused' => 'red',
@@ -121,7 +110,7 @@ private function loadGameData(): void
     public function getStatusLabelProperty(): string
     {
         return match ($this->game->status) {
-            'active' => 'EM OPERAÇÃO',
+            'active' => 'AO VIVO',
             'waiting' => 'AGUARDANDO',
             'finished' => 'FINALIZADA',
             'paused' => 'PAUSADA',
@@ -131,281 +120,183 @@ private function loadGameData(): void
 };
 ?>
 
-<div class="min-h-screen w-full bg-[#0b0d11] text-slate-200 p-4 sm:p-6 lg:p-8 overflow-x-hidden">
+<div class="min-h-screen w-full bg-[#05070a] text-slate-200 p-6 lg:p-10 overflow-hidden font-sans italic">
+    {{-- LOADING OVERLAY SUTIL --}}
+    <div wire:loading class="fixed top-10 right-10 z-[500]">
+        <div class="flex items-center gap-3 bg-blue-600/10 border border-blue-500/20 px-6 py-3 rounded-full backdrop-blur-md">
+            <div class="w-2 h-2 bg-blue-500 rounded-full animate-ping"></div>
+            <span class="text-[10px] font-black text-blue-500 uppercase tracking-widest">Sincronizando...</span>
+        </div>
+    </div>
 
-    {{-- Header --}}
-    <header class="max-w-7xl mx-auto mb-8 sm:mb-10 lg:mb-12">
-        <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 sm:gap-6 mb-4 sm:mb-6">
-            <div>
-                <div class="flex items-center gap-3 mb-2 sm:mb-3">
-                    <div class="h-[2px] w-8 sm:w-10 lg:w-12 bg-blue-600"></div>
-                    <span
-                        class="text-blue-500 font-black tracking-[0.2em] sm:tracking-[0.3em] uppercase text-[8px] sm:text-[9px] lg:text-[10px] italic">
-                        ARENA {{ $game->status === 'active' ? 'AO VIVO' : 'EM ESPERA' }}
-                    </span>
-                </div>
-                <h1
-                    class="text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-black text-white tracking-tighter uppercase italic leading-none">
-                    {{ $game->name }}
-                </h1>
+    {{-- HEADER DE TRANSMISSÃO --}}
+    <header class="max-w-[1800px] mx-auto mb-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-8">
+        <div class="relative">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="h-[2px] w-12 bg-blue-600"></div>
+                <span class="text-blue-500 font-black tracking-[0.4em] uppercase text-[10px]">Arena Display System</span>
+                @if($game->status === 'active')
+                    <div class="flex items-center gap-2 px-3 py-1 bg-red-600/10 border border-red-500/20 rounded-md">
+                        <div class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
+                        <span class="text-[8px] font-black text-red-500 uppercase tracking-widest">LIVE</span>
+                    </div>
+                @endif
             </div>
-
-            <div class="flex items-center gap-3 sm:gap-4">
-                <div class="bg-[#161920] border border-white/5 rounded-xl px-4 sm:px-5 py-2 sm:py-3">
-                    <p class="text-[7px] sm:text-[8px] font-black text-slate-500 uppercase italic">Rodada</p>
-                    <p class="text-lg sm:text-xl font-black text-white italic leading-none">
-                        {{ $game->current_round }}<span class="text-slate-700 text-xs">/{{ $game->max_rounds }}</span>
-                    </p>
-                </div>
-                <div
-                    class="px-4 sm:px-5 py-2 sm:py-3 rounded-xl text-[8px] sm:text-[9px] lg:text-[10px] font-black uppercase tracking-[0.15em] sm:tracking-[0.2em] border 
-                    bg-{{ $this->statusColor }}-500/10 border-{{ $this->statusColor }}-500/20 text-{{ $this->statusColor }}-500">
-                    {{ $this->statusLabel }}
-                </div>
-            </div>
+            <h1 class="text-5xl lg:text-7xl font-black text-white tracking-tighter uppercase leading-none">
+                {{ $game->name }}
+            </h1>
         </div>
 
-        {{-- Stats Bar --}}
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mt-4 sm:mt-6">
-            <div class="bg-[#161920] border border-white/5 rounded-xl sm:rounded-2xl p-3 sm:p-4">
-                <span class="text-[8px] sm:text-[9px] font-black text-slate-600 uppercase italic">Pacote</span>
-                <p class="text-[10px] sm:text-xs font-black text-white uppercase italic truncate">
-                    {{ $game->package->name ?? 'Padrão' }}</p>
-            </div>
-            <div class="bg-[#161920] border border-white/5 rounded-xl sm:rounded-2xl p-3 sm:p-4">
-                <span class="text-[8px] sm:text-[9px] font-black text-slate-600 uppercase italic">Código</span>
-                <p class="text-[10px] sm:text-xs font-black text-blue-500 font-mono uppercase tracking-widest">
-                    {{ $game->invite_code }}</p>
-            </div>
-            <div class="bg-[#161920] border border-white/5 rounded-xl sm:rounded-2xl p-3 sm:p-4">
-                <span class="text-[8px] sm:text-[9px] font-black text-slate-600 uppercase italic">Jogadores</span>
-                <p class="text-[10px] sm:text-xs font-black text-white uppercase italic">{{ $game->players->count() }}
-                    Ativos</p>
-            </div>
-            <div class="bg-[#161920] border border-white/5 rounded-xl sm:rounded-2xl p-3 sm:p-4">
-                <span class="text-[8px] sm:text-[9px] font-black text-slate-600 uppercase italic">Sorteados</span>
-                <p class="text-[10px] sm:text-xs font-black text-white uppercase italic">{{ count($drawnNumbers) }}/75
+        <div class="flex items-center gap-6 bg-[#0b0d11] border border-white/5 p-6 rounded-[2rem] shadow-2xl">
+            <div class="text-right border-r border-white/10 pr-6">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Rodada Atual</p>
+                <p class="text-3xl font-black text-white leading-none">
+                    {{ str_pad($game->current_round, 2, '0', STR_PAD_LEFT) }}<span class="text-slate-700 text-sm italic">/{{ $game->max_rounds }}</span>
                 </p>
+            </div>
+            <div class="text-center">
+                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Status da Arena</p>
+                <div class="px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border bg-{{ $this->statusColor }}-600 border-{{ $this->statusColor }}-500 text-white shadow-lg shadow-{{ $this->statusColor }}-600/20">
+                    {{ $this->statusLabel }}
+                </div>
             </div>
         </div>
     </header>
 
     @if ($game->status === 'active')
-        <div class="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+        <div class="max-w-[1800px] mx-auto grid grid-cols-12 gap-10">
+            
+            {{-- COLUNA ESQUERDA: HISTÓRICO VERTICAL --}}
+            <div class="col-span-12 lg:col-span-3 space-y-8">
+                <div class="bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-8 shadow-2xl">
+                    <h3 class="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] mb-8 flex items-center gap-3">
+                        <span class="w-2 h-2 bg-blue-600 rounded-full"></span>
+                        Últimos Números
+                    </h3>
 
-            {{-- Coluna 1: Histórico --}}
-            <aside class="lg:col-span-3 order-3 lg:order-1">
-                <div
-                    class="bg-[#161920] border border-white/5 rounded-2xl sm:rounded-[2rem] p-5 sm:p-6 lg:sticky lg:top-8 shadow-xl">
-                    <div class="flex items-center justify-between mb-5 pb-3 border-b border-white/5">
-                        <h3 class="text-[10px] sm:text-[11px] font-black text-white uppercase italic tracking-widest">
-                            ÚLTIMOS SORTEADOS
-                        </h3>
-                        <span class="text-[9px] sm:text-[10px] font-black text-slate-600">
-                            {{ count($drawnNumbers) }}/75
-                        </span>
-                    </div>
-
-                    @if(!empty($currentDraws))
-                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                            @foreach ($currentDraws as $index => $draw)
-                                <div wire:key="{{ $draw['unique_key'] }}"
-                                    class="bg-[#0b0d11] border border-white/5 rounded-xl p-3 sm:p-4 flex items-center justify-center transition-all duration-300
-                                                {{ $index === 0 ? 'ring-2 ring-blue-500 border-blue-500/50 bg-blue-600/10' : 'opacity-60' }}">
-                                    <span
-                                        class="text-xl sm:text-2xl lg:text-3xl font-black {{ $index === 0 ? 'text-blue-500' : 'text-slate-500' }}">
-                                        {{ str_pad($draw['number'], 2, '0', STR_PAD_LEFT) }}
-                                    </span>
-                                </div>
-                            @endforeach
-                        </div>
-
-                        @if(count($drawnNumbers) > 10)
-                            <div class="mt-4 text-center">
-                                <span class="text-[8px] font-black text-slate-700 uppercase italic">
-                                    + {{ count($drawnNumbers) - 10 }} números
+                    <div class="grid grid-cols-2 gap-4">
+                        @foreach (collect($currentDraws)->take(8) as $index => $draw)
+                            <div wire:key="{{ $draw['unique_key'] }}" 
+                                 class="relative aspect-square rounded-[1.5rem] flex items-center justify-center transition-all duration-500
+                                 {{ $index === 0 ? 'bg-blue-600 shadow-2xl shadow-blue-600/40 scale-105 z-10' : 'bg-[#161920] border border-white/5 opacity-40' }}">
+                                <span class="text-4xl font-black {{ $index === 0 ? 'text-white' : 'text-slate-400' }}">
+                                    {{ str_pad($draw['number'], 2, '0', STR_PAD_LEFT) }}
                                 </span>
+                                @if($index === 0)
+                                    <div class="absolute -top-2 -right-2 bg-white text-blue-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-tighter">Novo</div>
+                                @endif
                             </div>
-                        @endif
-                    @else
-                        <div class="text-center py-8">
-                            <span class="text-[10px] font-black text-slate-700 uppercase italic tracking-widest">
-                                Aguardando sorteio...
-                            </span>
-                        </div>
-                    @endif
-                </div>
-            </aside>
-
-            {{-- Coluna 2: Destaque Central --}}
-            <main class="lg:col-span-6 order-1 lg:order-2 flex flex-col items-center">
-                {{-- Destaque Central --}}
-@if ($lastDrawId && !empty($currentDraws))
-    @php
-        // FORÇAR O PRIMEIRO COMO MAIS RECENTE
-        $sortedDraws = collect($currentDraws)->sortByDesc('created_at')->values();
-        $latestNumber = $sortedDraws[0]['number'] ?? $currentDraws[0]['number'];
-    @endphp
-    <div wire:key="main-number-{{ $lastDrawId }}-{{ now()->timestamp }}" class="w-full flex justify-center">
-        <div class="relative group">
-            <div class="absolute inset-0 bg-blue-600/20 blur-[100px] rounded-full"></div>
-            <div class="relative bg-gradient-to-b from-[#1c2128] to-[#161920] border border-white/10 rounded-[3rem] sm:rounded-[4rem] lg:rounded-[6rem] p-8 sm:p-12 lg:p-16 shadow-2xl">
-                <div class="text-center">
-                    <span class="text-[10px] sm:text-xs font-black text-slate-500 uppercase tracking-[0.3em] sm:tracking-[0.4em] mb-2 sm:mb-3 block italic">
-                        ÚLTIMO NÚMERO
-                    </span>
-                    <div class="text-8xl sm:text-9xl lg:text-[10rem] xl:text-[12rem] font-black text-white leading-none tracking-tighter">
-                        {{ str_pad($latestNumber, 2, '0', STR_PAD_LEFT) }}
+                        @endforeach
                     </div>
-                    <div class="mt-3 sm:mt-4 inline-block px-4 py-1.5 bg-white/5 rounded-full">
-                        <span class="text-[8px] sm:text-[9px] font-black text-slate-500 uppercase italic">
-                            Sequência #{{ count($drawnNumbers) }}
-                        </span>
+                </div>
+
+                {{-- INFO DA SALA --}}
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-[#0b0d11] border border-white/5 rounded-2xl p-6">
+                        <span class="text-[8px] font-black text-slate-600 uppercase tracking-widest block mb-2">Jogadores</span>
+                        <span class="text-xl font-black text-white italic">{{ $game->players->count() }}</span>
+                    </div>
+                    <div class="bg-[#0b0d11] border border-white/5 rounded-2xl p-6">
+                        <span class="text-[8px] font-black text-slate-600 uppercase tracking-widest block mb-2">Sorteados</span>
+                        <span class="text-xl font-black text-white italic">{{ count($drawnNumbers) }}</span>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
-@endif
 
-                {{-- Grid 75 --}}
-                <div class="mt-8 sm:mt-10 lg:mt-12 w-full">
-                    <div class="bg-[#161920] border border-white/5 rounded-2xl sm:rounded-[2rem] p-4 sm:p-6">
-                        <div
-                            class="grid grid-cols-5 xs:grid-cols-6 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12 xl:grid-cols-15 gap-1.5 sm:gap-2">
-                            @foreach (range(1, 75) as $num)
-                                            <div wire:key="ball-{{ $num }}-{{ in_array($num, $drawnNumbers) ? 'drawn' : 'pending' }}" class="aspect-square rounded-lg flex items-center justify-center font-black text-xs sm:text-sm lg:text-base transition-all duration-300
-                                                        {{ in_array($num, $drawnNumbers)
-                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                                : 'bg-white/5 text-slate-700 border border-white/5' }}">
-                                                {{ $num }}
-                                            </div>
-                            @endforeach
+            {{-- CENTRO: O GRANDE NÚMERO --}}
+            <div class="col-span-12 lg:col-span-6 flex flex-col items-center justify-between min-h-[60vh]">
+                @if ($lastDrawId && !empty($currentDraws))
+                    <div wire:key="display-main-{{ $lastDrawId }}" class="relative group mt-10">
+                        {{-- Efeito de Brilho --}}
+                        <div class="absolute inset-0 bg-blue-600/20 blur-[120px] rounded-full animate-pulse"></div>
+                        
+                        <div class="relative bg-gradient-to-b from-[#161920] to-[#0b0d11] border border-white/10 w-80 h-80 lg:w-[28rem] lg:h-[28rem] rounded-full flex flex-col items-center justify-center shadow-[0_0_100px_rgba(0,0,0,0.5)]">
+                            <span class="text-[12px] font-black text-blue-500 uppercase tracking-[0.5em] mb-4">Sorteado</span>
+                            <div class="text-[10rem] lg:text-[15rem] font-black text-white leading-none tracking-tighter drop-shadow-2xl">
+                                {{ str_pad($currentDraws[0]['number'], 2, '0', STR_PAD_LEFT) }}
+                            </div>
+                            <div class="absolute bottom-12 px-6 py-2 bg-white/5 rounded-full border border-white/10 backdrop-blur-md">
+                                <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">#{{ count($drawnNumbers) }} de 75</span>
+                            </div>
                         </div>
                     </div>
+                @endif
+
+                {{-- GRID 75 NÚMEROS --}}
+                <div class="w-full bg-[#0b0d11] border border-white/5 rounded-[3rem] p-8 mt-12">
+                    <div class="grid grid-cols-15 gap-2">
+                        @foreach (range(1, 75) as $num)
+                            <div wire:key="grid-{{ $num }}-{{ in_array($num, $drawnNumbers) ? 'y' : 'n' }}" 
+                                 class="aspect-square rounded-lg flex items-center justify-center text-sm font-black transition-all duration-700
+                                 {{ in_array($num, $drawnNumbers) 
+                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' 
+                                    : 'bg-[#161920] text-slate-800 border border-white/[0.02]' }}">
+                                {{ str_pad($num, 2, '0', STR_PAD_LEFT) }}
+                            </div>
+                        @endforeach
+                    </div>
                 </div>
-            </main>
+            </div>
 
-            {{-- Coluna 3: Prêmios e Vencedores --}}
-            <aside class="lg:col-span-3 order-2 lg:order-3 flex flex-col gap-6">
-
-                {{-- Prêmios --}}
-                <div class="bg-[#161920] border border-white/5 rounded-2xl sm:rounded-[2rem] p-5 sm:p-6 shadow-xl">
-                    <h3
-                        class="text-[10px] sm:text-[11px] font-black text-white uppercase italic tracking-widest mb-5 pb-3 border-b border-white/5">
-                        PRÊMIOS - RODADA {{ $game->current_round }}
+            {{-- COLUNA DIREITA: PRÊMIOS E GANHADORES --}}
+            <div class="col-span-12 lg:col-span-3 space-y-8">
+                <div class="bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-8 shadow-2xl flex flex-col h-full">
+                    <h3 class="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] mb-8 flex items-center gap-3">
+                        <span class="w-2 h-2 bg-amber-500 rounded-full"></span>
+                        Premiação Ativa
                     </h3>
 
-                    <div class="space-y-3 max-h-[40vh] overflow-y-auto pr-1 custom-scrollbar">
+                    <div class="space-y-4 overflow-y-auto no-scrollbar max-h-[70vh]">
                         @forelse ($prizes as $prize)
-                            <div wire:key="prize-{{ $prize['id'] }}-{{ $prize['winner'] ? 'claimed' : 'available' }}" class="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border transition-all
-                                        {{ $prize['winner'] ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-white/5' }}">
-                                <div class="flex items-center gap-3">
-                                    <span class="text-[9px] sm:text-[10px] font-black text-slate-600 w-5">
-                                        #{{ $prize['position'] }}
-                                    </span>
-                                    <div>
-                                        <p class="text-xs sm:text-sm font-black text-white uppercase italic tracking-tight">
-                                            {{ $prize['name'] }}
-                                        </p>
-                                        @if($prize['winner'])
-                                            <p class="text-[8px] sm:text-[9px] font-bold text-emerald-500 uppercase mt-0.5">
-                                                {{ $prize['winner'] }}
-                                            </p>
-                                        @endif
-                                    </div>
+                            <div class="p-5 rounded-2xl transition-all border {{ $prize['winner'] ? 'bg-emerald-600 border-emerald-500 scale-[0.98] opacity-50' : 'bg-[#161920] border-white/5 shadow-xl' }}">
+                                <div class="flex justify-between items-start mb-2">
+                                    <span class="text-[9px] font-black {{ $prize['winner'] ? 'text-white/60' : 'text-blue-500' }} uppercase">Slot #{{ $prize['position'] }}</span>
+                                    @if($prize['winner'])
+                                        <span class="bg-white/20 text-white text-[8px] px-2 py-0.5 rounded-md font-black italic">GANHO</span>
+                                    @endif
                                 </div>
+                                <h4 class="text-lg font-black text-white uppercase italic truncate">{{ $prize['name'] }}</h4>
                                 @if($prize['winner'])
-                                    <span class="text-emerald-500 text-[10px] font-black">✓</span>
-                                @else
-                                    <span class="text-slate-700 text-[8px] font-black uppercase">Disponível</span>
+                                    <div class="mt-3 pt-3 border-t border-white/10 flex items-center gap-2">
+                                        <span class="text-xl">🏆</span>
+                                        <span class="text-[11px] font-black text-white uppercase truncate">{{ $prize['winner'] }}</span>
+                                    </div>
                                 @endif
                             </div>
                         @empty
-                            <div class="text-center py-6">
-                                <p class="text-[10px] font-black text-slate-700 uppercase tracking-widest italic">
-                                    Nenhum prêmio cadastrado
-                                </p>
+                            <div class="text-center py-20">
+                                <span class="text-[10px] font-black text-slate-700 uppercase tracking-widest italic">Nenhum prêmio na rodada</span>
                             </div>
                         @endforelse
                     </div>
                 </div>
-
-                {{-- Vencedores da Rodada --}}
-                @if(!empty($roundWinners))
-                    <div class="bg-[#161920] border border-white/5 rounded-2xl sm:rounded-[2rem] p-5 sm:p-6 shadow-xl">
-                        <div class="flex items-center justify-between mb-5 pb-3 border-b border-white/5">
-                            <h3 class="text-[10px] sm:text-[11px] font-black text-white uppercase italic tracking-widest">
-                                VENCEDORES
-                            </h3>
-                            <span class="text-[9px] font-black text-amber-500">
-                                {{ count($roundWinners) }}
-                            </span>
-                        </div>
-
-                        <div class="space-y-2">
-                            @foreach($roundWinners as $winner)
-                                <div class="flex items-center gap-2 py-2 border-b border-white/5 last:border-0">
-                                    <span class="w-6 h-6 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                                        <span class="text-[9px] font-black text-amber-500">🏆</span>
-                                    </span>
-                                    <span class="text-[10px] sm:text-[11px] font-black text-white uppercase italic tracking-tight">
-                                        {{ $winner['name'] }}
-                                    </span>
-                                </div>
-                            @endforeach
-                        </div>
-                    </div>
-                @endif
-            </aside>
+            </div>
         </div>
     @else
-        {{-- Status Não Ativo --}}
-        <div class="max-w-7xl mx-auto mt-20 text-center">
-            <div class="bg-[#161920] border border-white/5 rounded-[3rem] p-16 sm:p-20">
-                <div class="text-7xl sm:text-8xl mb-6 opacity-20">📺</div>
-                <h2 class="text-3xl sm:text-4xl font-black text-white uppercase italic tracking-tighter mb-4">
-                    ARENA {{ $this->statusLabel }}
-                </h2>
-                <p class="text-sm sm:text-base text-slate-600 font-black uppercase tracking-[0.3em] italic">
-                    O display será ativado quando a partida iniciar
-                </p>
+        {{-- TELA DE ESPERA / STANDBY --}}
+        <div class="max-w-4xl mx-auto mt-32">
+            <div class="bg-[#0b0d11] border border-white/5 rounded-[4rem] p-24 text-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-blue-600/5 blur-[100px]"></div>
+                <div class="relative z-10">
+                    <div class="text-8xl mb-10">📺</div>
+                    <h2 class="text-4xl font-black text-white uppercase italic tracking-tighter mb-6">Aguardando Início</h2>
+                    <div class="flex items-center justify-center gap-4">
+                        <div class="px-6 py-2 bg-white/5 border border-white/10 rounded-full">
+                            <span class="text-blue-500 text-[10px] font-black uppercase tracking-widest italic">{{ $this->statusLabel }}</span>
+                        </div>
+                    </div>
+                    <p class="mt-12 text-slate-500 text-[11px] font-black uppercase tracking-[0.4em] italic">O sorteio aparecerá automaticamente nesta tela</p>
+                </div>
             </div>
         </div>
     @endif
 
     <style>
-        .custom-scrollbar::-webkit-scrollbar {
-            width: 3px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        .animate-spin {
-            animation: spin 1s linear infinite;
-        }
-
-        @media (min-width: 1280px) {
-            .xl\:grid-cols-15 {
-                grid-template-columns: repeat(15, minmax(0, 1fr));
-            }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        @media (min-width: 1024px) {
+            .grid-cols-15 { grid-template-columns: repeat(15, minmax(0, 1fr)); }
         }
     </style>
 </div>

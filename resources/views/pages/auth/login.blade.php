@@ -2,34 +2,31 @@
 
 use App\Livewire\Forms\LoginForm;
 use Illuminate\Support\Facades\Session;
+use Livewire\Attributes\Layout;
+use Livewire\Component;
 
-use function Livewire\Volt\form;
-use function Livewire\Volt\layout;
+new #[Layout('layouts.guest')] class extends Component
+{
+    public LoginForm $form;
 
-layout('layouts.guest');
-
-form(LoginForm::class);
-
-$login = function () {
+public function login(): void
+{
     $this->validate();
-
     $this->form->authenticate();
-
     Session::regenerate();
 
+    // Remova o 'navigate: true' aqui para forçar um refresh real ao entrar
     $this->redirectIntended(default: route('dashboard', absolute: false));
-};
-
-?>
+}
+}; ?>
 
 <div class="min-h-screen flex flex-col justify-center items-center bg-[#05070a] px-4 relative overflow-hidden">
-    {{-- Efeitos de fundo para consistência com a Landing --}}
+    {{-- Efeitos de fundo --}}
     <div class="absolute top-1/4 -left-20 w-80 h-80 bg-blue-600/10 blur-[120px] rounded-full"></div>
     <div class="absolute bottom-1/4 -right-20 w-80 h-80 bg-purple-600/10 blur-[120px] rounded-full"></div>
 
     <div class="w-full max-w-md relative z-10">
         
-        {{-- Logo/Branding --}}
         <div class="text-center mb-10">
             <div class="inline-flex items-center gap-3 mb-4">
                 <div class="w-12 h-12 bg-gradient-to-tr from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
@@ -44,9 +41,7 @@ $login = function () {
             </p>
         </div>
 
-        {{-- Card Estilo "Dossiê/Glass" --}}
         <div class="bg-[#0b0d11]/80 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-8 sm:p-10 shadow-2xl relative overflow-hidden">
-            {{-- Barra de Progresso Decorativa --}}
             <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 to-purple-600"></div>
             
             @if (session('status'))
@@ -55,14 +50,14 @@ $login = function () {
                 </div>
             @endif
 
-            <form wire:submit.prevent="login" class="space-y-6">
+            <form wire:submit="login" class="space-y-6">
                 
                 {{-- E-mail --}}
                 <div class="space-y-2">
                     <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest italic ml-1">Identificação (E-mail)</label>
                     <input wire:model="form.email" type="email" autocomplete="username" required autofocus
                         placeholder="agente@bingbing.com"
-                        class="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none font-medium">
+                        class="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none font-medium text-sm">
                     @error('form.email') 
                         <span class="text-[9px] text-red-500 font-black uppercase tracking-widest mt-1 block italic">{{ $message }}</span> 
                     @enderror
@@ -73,20 +68,19 @@ $login = function () {
                     <div class="flex justify-between items-center ml-1">
                         <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Chave de Acesso</label>
                         @if (Route::has('password.request'))
-                            <a class="text-[9px] font-black text-blue-500 uppercase tracking-widest hover:text-blue-400 transition" href="{{ route('password.request') }}">
+                            <a class="text-[9px] font-black text-blue-500 uppercase tracking-widest hover:text-blue-400 transition" href="{{ route('password.request') }}" wire:navigate>
                                 Recuperar?
                             </a>
                         @endif
                     </div>
                     <input wire:model="form.password" type="password" autocomplete="current-password" required
                         placeholder="••••••••"
-                        class="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none font-medium">
+                        class="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white placeholder:text-slate-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none font-medium text-sm">
                     @error('form.password') 
                         <span class="text-[9px] text-red-500 font-black uppercase tracking-widest mt-1 block italic">{{ $message }}</span> 
                     @enderror
                 </div>
 
-                {{-- Lembrar-me --}}
                 <div class="flex items-center ml-1">
                     <label for="remember" class="inline-flex items-center cursor-pointer group">
                         <input wire:model="form.remember" id="remember" type="checkbox" 
@@ -95,11 +89,10 @@ $login = function () {
                     </label>
                 </div>
 
-                {{-- Botão Principal --}}
                 <div class="pt-4">
                     <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-[1.5rem] font-black text-xs uppercase tracking-[0.2em] italic transition-all shadow-xl shadow-blue-600/20 active:scale-[0.98] flex justify-center items-center group">
-                        <span wire:loading.remove>Entrar na Arena <span class="inline-block group-hover:translate-x-1 transition-transform ml-1">→</span></span>
-                        <span wire:loading class="flex items-center">
+                        <span wire:loading.remove wire:target="login">Entrar na Arena <span class="inline-block group-hover:translate-x-1 transition-transform ml-1">→</span></span>
+                        <span wire:loading wire:target="login" class="flex items-center">
                             <svg class="animate-spin h-5 w-5 mr-3 text-white" viewBox="0 0 24 24">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -111,7 +104,7 @@ $login = function () {
                     <div class="text-center mt-8 pt-6 border-t border-white/5">
                         <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">
                             Novo por aqui? 
-                            <a class="text-blue-500 hover:text-blue-400 transition ml-1" href="{{ route('register') }}">
+                            <a class="text-blue-500 hover:text-blue-400 transition ml-1" href="{{ route('register') }}" wire:navigate>
                                 Criar Novo Perfil
                             </a>
                         </p>
@@ -119,8 +112,7 @@ $login = function () {
                 </div>
             </form>
         </div>
-        
-        {{-- Rodapé de Segurança --}}
+
         <div class="mt-8 text-center">
             <p class="text-[8px] font-black text-slate-700 uppercase tracking-[0.4em] italic">
                 Criptografia de Ponta a Ponta // BingBing 2026

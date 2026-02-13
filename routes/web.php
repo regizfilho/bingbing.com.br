@@ -1,16 +1,23 @@
 <?php
 
-use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\SessionController;
-use App\Livewire\Display\GameDisplay;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'leading');
 
+Route::middleware('guest')->group(function () {
+Route::livewire('/login', 'pages::auth.login')->name('login');
+Route::livewire('/register', 'pages::auth.register')->name('register');
+Route::livewire('/forgot-password', 'pages::auth.forgot-password')->name('forgot-request');
+Route::livewire('reset-password/{token}', 'pages::auth.reset-password')
+        ->name('password.reset');
+});
+
 Route::middleware(['auth'])->group(function () {
+
+    Route::livewire('/player/profile/{uuid?}', 'pages::player.profile')->name('player.profile');
+
     Route::livewire('/dashboard', 'pages::dashboard.index')->name('dashboard');
 
     // Wallet
@@ -36,6 +43,5 @@ Route::livewire('/display/{uuid}', 'pages::games.display')->name('games.display'
 Route::post('/logout', [SessionController::class, 'destroy'])
     ->middleware('auth')
     ->name('logout');
-
 
 require __DIR__.'/auth.php';
