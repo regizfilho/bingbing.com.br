@@ -6,6 +6,7 @@ use Livewire\Component;
 use App\Models\Game\Game;
 use App\Models\Game\Winner;
 use App\Models\Game\Prize;
+use Illuminate\Support\Str;
 
 new #[Layout('layouts.display')] class extends Component {
     public string $gameUuid;
@@ -48,31 +49,35 @@ new #[Layout('layouts.display')] class extends Component {
     {
         $round = $this->game->current_round;
 
+        // 1. Grid Numérico (1-75)
         $this->drawnNumbers = $this->game->draws()
             ->where('round_number', $round)
             ->orderBy('number', 'asc')
             ->pluck('number')
             ->toArray();
 
-        $drawsDesc = $this->game->draws()
+        // 2. BUSCA DO HISTÓRICO - FORÇANDO ORDENAÇÃO DE COLEÇÃO
+        $drawsRecords = $this->game->draws()
             ->where('round_number', $round)
-            ->orderBy('created_at', 'desc')
-            ->get();
+            ->get() // Pegamos a coleção
+            ->sortByDesc('id') // Ordenamos a coleção explicitamente pelo ID
+            ->values(); // Resetamos os índices para que o 0 seja o mais recente
 
-        $latest = $drawsDesc->first();
+        // Define o ID do último para o wire:key do destaque central
+        $latest = $drawsRecords->first();
         $this->lastDrawId = $latest ? $latest->id : null;
 
-        $this->currentDraws = $drawsDesc
-            ->take(10)
-            ->map(fn($draw) => [
+        // 3. MAPEAMENTO GARANTIDO
+        $this->currentDraws = $drawsRecords->take(10)->map(function ($draw) {
+            return [
                 'id' => $draw->id,
                 'number' => $draw->number,
                 'created_at' => $draw->created_at->format('H:i:s'),
-                'unique_key' => "draw-{$draw->id}-" . $draw->created_at->timestamp,
-            ])
-            ->values()
-            ->toArray();
+                'unique_key' => "draw-{$draw->id}-" . Str::random(4), // Força refresh visual
+            ];
+        })->toArray();
 
+        // 4. Vencedores e Prêmios
         $this->roundWinners = Winner::where('game_id', $this->game->id)
             ->where('round_number', $round)
             ->with('user')
@@ -121,7 +126,7 @@ new #[Layout('layouts.display')] class extends Component {
 ?>
 
 <div class="min-h-screen w-full bg-[#05070a] text-slate-200 p-6 lg:p-10 overflow-hidden font-sans italic">
-    {{-- LOADING OVERLAY SUTIL --}}
+    {{-- LOADING OVERLAY --}}
     <div wire:loading class="fixed top-10 right-10 z-[500]">
         <div class="flex items-center gap-3 bg-blue-600/10 border border-blue-500/20 px-6 py-3 rounded-full backdrop-blur-md">
             <div class="w-2 h-2 bg-blue-500 rounded-full animate-ping"></div>
@@ -129,7 +134,7 @@ new #[Layout('layouts.display')] class extends Component {
         </div>
     </div>
 
-    {{-- HEADER DE TRANSMISSÃO --}}
+    {{-- HEADER --}}
     <header class="max-w-[1800px] mx-auto mb-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-8">
         <div class="relative">
             <div class="flex items-center gap-4 mb-4">
@@ -166,7 +171,7 @@ new #[Layout('layouts.display')] class extends Component {
     @if ($game->status === 'active')
         <div class="max-w-[1800px] mx-auto grid grid-cols-12 gap-10">
             
-            {{-- COLUNA ESQUERDA: HISTÓRICO VERTICAL --}}
+            {{-- COLUNA ESQUERDA: HISTÓRICO --}}
             <div class="col-span-12 lg:col-span-3 space-y-8">
                 <div class="bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-8 shadow-2xl">
                     <h3 class="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] mb-8 flex items-center gap-3">
@@ -183,14 +188,13 @@ new #[Layout('layouts.display')] class extends Component {
                                     {{ str_pad($draw['number'], 2, '0', STR_PAD_LEFT) }}
                                 </span>
                                 @if($index === 0)
-                                    <div class="absolute -top-2 -right-2 bg-white text-blue-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-tighter">Novo</div>
+                                    <div class="absolute -top-2 -right-2 bg-white text-blue-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-tighter shadow-xl">Novo</div>
                                 @endif
                             </div>
                         @endforeach
                     </div>
                 </div>
 
-                {{-- INFO DA SALA --}}
                 <div class="grid grid-cols-2 gap-4">
                     <div class="bg-[#0b0d11] border border-white/5 rounded-2xl p-6">
                         <span class="text-[8px] font-black text-slate-600 uppercase tracking-widest block mb-2">Jogadores</span>
@@ -203,16 +207,15 @@ new #[Layout('layouts.display')] class extends Component {
                 </div>
             </div>
 
-            {{-- CENTRO: O GRANDE NÚMERO --}}
+            {{-- CENTRO: O GRANDE NÚMERO (GARANTIDO O ÍNDICE 0) --}}
             <div class="col-span-12 lg:col-span-6 flex flex-col items-center justify-between min-h-[60vh]">
-                @if ($lastDrawId && !empty($currentDraws))
-                    <div wire:key="display-main-{{ $lastDrawId }}" class="relative group mt-10">
-                        {{-- Efeito de Brilho --}}
+                @if (!empty($currentDraws))
+                    <div wire:key="main-display-{{ $lastDrawId }}" class="relative group mt-10">
                         <div class="absolute inset-0 bg-blue-600/20 blur-[120px] rounded-full animate-pulse"></div>
                         
                         <div class="relative bg-gradient-to-b from-[#161920] to-[#0b0d11] border border-white/10 w-80 h-80 lg:w-[28rem] lg:h-[28rem] rounded-full flex flex-col items-center justify-center shadow-[0_0_100px_rgba(0,0,0,0.5)]">
                             <span class="text-[12px] font-black text-blue-500 uppercase tracking-[0.5em] mb-4">Sorteado</span>
-                            <div class="text-[10rem] lg:text-[15rem] font-black text-white leading-none tracking-tighter drop-shadow-2xl">
+                            <div class="text-[12rem] lg:text-[15rem] font-black text-white leading-none tracking-tighter drop-shadow-2xl">
                                 {{ str_pad($currentDraws[0]['number'], 2, '0', STR_PAD_LEFT) }}
                             </div>
                             <div class="absolute bottom-12 px-6 py-2 bg-white/5 rounded-full border border-white/10 backdrop-blur-md">
@@ -238,7 +241,7 @@ new #[Layout('layouts.display')] class extends Component {
                 </div>
             </div>
 
-            {{-- COLUNA DIREITA: PRÊMIOS E GANHADORES --}}
+            {{-- COLUNA DIREITA --}}
             <div class="col-span-12 lg:col-span-3 space-y-8">
                 <div class="bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-8 shadow-2xl flex flex-col h-full">
                     <h3 class="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] mb-8 flex items-center gap-3">
@@ -264,28 +267,22 @@ new #[Layout('layouts.display')] class extends Component {
                                 @endif
                             </div>
                         @empty
-                            <div class="text-center py-20">
-                                <span class="text-[10px] font-black text-slate-700 uppercase tracking-widest italic">Nenhum prêmio na rodada</span>
-                            </div>
+                            <div class="text-center py-20 text-slate-700 italic text-[10px] font-black uppercase tracking-widest">Nenhum prêmio</div>
                         @endforelse
                     </div>
                 </div>
             </div>
         </div>
     @else
-        {{-- TELA DE ESPERA / STANDBY --}}
         <div class="max-w-4xl mx-auto mt-32">
             <div class="bg-[#0b0d11] border border-white/5 rounded-[4rem] p-24 text-center relative overflow-hidden">
                 <div class="absolute inset-0 bg-blue-600/5 blur-[100px]"></div>
-                <div class="relative z-10">
+                <div class="relative z-10 text-center">
                     <div class="text-8xl mb-10">📺</div>
                     <h2 class="text-4xl font-black text-white uppercase italic tracking-tighter mb-6">Aguardando Início</h2>
-                    <div class="flex items-center justify-center gap-4">
-                        <div class="px-6 py-2 bg-white/5 border border-white/10 rounded-full">
-                            <span class="text-blue-500 text-[10px] font-black uppercase tracking-widest italic">{{ $this->statusLabel }}</span>
-                        </div>
+                    <div class="inline-flex items-center gap-4 px-6 py-2 bg-white/5 border border-white/10 rounded-full mx-auto">
+                        <span class="text-blue-500 text-[10px] font-black uppercase tracking-widest italic">{{ $this->statusLabel }}</span>
                     </div>
-                    <p class="mt-12 text-slate-500 text-[11px] font-black uppercase tracking-[0.4em] italic">O sorteio aparecerá automaticamente nesta tela</p>
                 </div>
             </div>
         </div>
@@ -294,7 +291,6 @@ new #[Layout('layouts.display')] class extends Component {
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        
         @media (min-width: 1024px) {
             .grid-cols-15 { grid-template-columns: repeat(15, minmax(0, 1fr)); }
         }

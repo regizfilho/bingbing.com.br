@@ -453,26 +453,6 @@ new class extends Component {
 
         {{-- Main Content --}}
         <main class="flex-1 p-6 lg:p-8 overflow-y-auto">
-            {{-- Alertas --}}
-            @if(session()->has('success') || session()->has('info') || session()->has('error'))
-                <div class="mb-6 space-y-3">
-                    @if(session('success'))
-                        <div class="bg-green-500/10 border border-green-500/20 text-green-400 px-4 py-3 rounded-2xl">
-                            {{ session('success') }}
-                        </div>
-                    @endif
-                    @if(session('info'))
-                        <div class="bg-blue-500/10 border border-blue-500/20 text-blue-400 px-4 py-3 rounded-2xl">
-                            {{ session('info') }}
-                        </div>
-                    @endif
-                    @if(session('error'))
-                        <div class="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-2xl">
-                            {{ session('error') }}
-                        </div>
-                    @endif
-                </div>
-            @endif
 
             {{-- Aviso Prêmios --}}
             @if($showNoPrizesWarning)
@@ -632,6 +612,28 @@ new class extends Component {
                     @endif
                 </section>
             @endif
+
+                        {{-- Alertas --}}
+            @if(session()->has('success') || session()->has('info') || session()->has('error'))
+                <div class="mb-6 space-y-3">
+                    @if(session('success'))
+                        <div class="bg-green-500/10 border border-green-500/20 text-green-400 px-4 py-3 rounded-2xl">
+                            {{ session('success') }}
+                        </div>
+                    @endif
+                    @if(session('info'))
+                        <div class="bg-blue-500/10 border border-blue-500/20 text-blue-400 px-4 py-3 rounded-2xl">
+                            {{ session('info') }}
+                        </div>
+                    @endif
+                    @if(session('error'))
+                        <div class="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-2xl">
+                            {{ session('error') }}
+                        </div>
+                    @endif
+                </div>
+            @endif
+
 
             {{-- Cartelas Vencedoras --}}
             @if($this->winningCards->count() > 0)
