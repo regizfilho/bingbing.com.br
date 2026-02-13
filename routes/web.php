@@ -18,6 +18,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::middleware(['firewall'])->group(function () {
         Route::livewire('/', 'pages::admin.index')->name('admin');
+        Route::livewire('/pages', 'pages::admin.pages.index')->name('admin.pages.index');
         Route::livewire('/security', 'pages::admin.security.index')->name('admin.security.index');
     });
 

@@ -51,7 +51,7 @@ class extends Component {
     }
 }; ?>
 
-<div wire:poll.10s>
+<div >
     {{-- LOADING: Agora com targets específicos para não piscar no poll --}}
     <x-loading target="save, delete, toggle" message="PROCESSANDO..." />
 

@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
             GamePackageSeeder::class,
             PackageSeeder::class,
             FirewallSeeder::class,
+            PageSeeder::class,
         ]);
 
         $user = User::updateOrCreate(

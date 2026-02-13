@@ -1,4 +1,18 @@
-@props(['name', 'title'])
+@props(['name', 'title', 'maxWidth' => 'lg'])
+
+@php
+$maxWidthClass = [
+    'sm' => 'max-w-sm',
+    'md' => 'max-w-md',
+    'lg' => 'max-w-lg',
+    'xl' => 'max-w-xl',
+    '2xl' => 'max-w-2xl',
+    '4xl' => 'max-w-4xl',
+    '7xl' => 'max-w-7xl',
+    'full' => 'max-w-[95vw]',
+][$maxWidth] ?? 'max-w-lg';
+@endphp
+
 <div 
     x-data="{ show: false }" 
     x-show="show" 
@@ -9,7 +23,7 @@
     class="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-y-auto"
 >
     {{-- Overlay --}}
-    <div x-show="show" x-transition.opacity class="fixed inset-0 bg-black/90 backdrop-blur-sm"></div>
+    <div x-show="show" x-transition.opacity @click="show = false" class="fixed inset-0 bg-black/90 backdrop-blur-sm"></div>
 
     {{-- Modal Content --}}
     <div 
@@ -17,7 +31,7 @@
         x-transition:enter="transition ease-out duration-300"
         x-transition:enter-start="opacity-0 scale-95"
         x-transition:enter-end="opacity-100 scale-100"
-        class="relative w-full max-w-lg bg-[#0f1117] border border-white/10 rounded-2xl shadow-2xl p-8"
+        class="relative w-full {{ $maxWidthClass }} bg-[#0f1117] border border-white/10 rounded-3xl shadow-2xl p-8"
     >
         <div class="flex items-center justify-between mb-6">
             <h3 class="text-xl font-bold text-white uppercase italic tracking-tight">{{ $title }}</h3>
@@ -26,6 +40,8 @@
             </button>
         </div>
 
-        {{ $slot }}
+        <div class="max-h-[80vh] overflow-y-auto pr-2 custom-scrollbar">
+            {{ $slot }}
+        </div>
     </div>
 </div>
