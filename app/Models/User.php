@@ -37,6 +37,8 @@ class User extends Authenticatable
         'role',
         'status',
         'ban_reason',
+        'banned_at',
+        'banned_by',
         'is_verified'
     ];
     
@@ -50,6 +52,7 @@ class User extends Authenticatable
         'password' => 'hashed',
         'birth_date' => 'date',
         'is_verified' => 'boolean',
+        'banned_at' => 'datetime',
     ];
 
     public function uniqueIds()
@@ -78,6 +81,40 @@ class User extends Authenticatable
 
     public function playedGames() {
         return $this->hasManyThrough(Game::class, Player::class, 'user_id', 'id', 'id', 'game_id');
+    }
+
+    public function bannedBy()
+    {
+        return $this->belongsTo(User::class, 'banned_by');
+    }
+
+    public function bannedUsers()
+    {
+        return $this->hasMany(User::class, 'banned_by');
+    }
+
+    // Helpers
+    public function isBanned(): bool
+    {
+        return !is_null($this->banned_at);
+    }
+
+    public function ban(string $reason, ?int $adminId = null): void
+    {
+        $this->update([
+            'ban_reason' => $reason,
+            'banned_at' => now(),
+            'banned_by' => $adminId ?? auth()->id(),
+        ]);
+    }
+
+    public function unban(): void
+    {
+        $this->update([
+            'ban_reason' => null,
+            'banned_at' => null,
+            'banned_by' => null,
+        ]);
     }
 
     public function getRouteKeyName() { return 'uuid'; }

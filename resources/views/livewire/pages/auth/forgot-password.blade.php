@@ -89,7 +89,7 @@ $sendPasswordResetLink = function () {
 
         {{-- Retorno --}}
         <div class="text-center pt-2">
-            <a href="{{ route('login') }}" wire:navigate class="text-[10px] font-black text-slate-600 hover:text-white uppercase tracking-[0.2em] italic transition-colors p-2">
+            <a href="{{ route('auth.login') }}" wire:navigate class="text-[10px] font-black text-slate-600 hover:text-white uppercase tracking-[0.2em] italic transition-colors p-2">
                 ← Voltar para o Login
             </a>
         </div>

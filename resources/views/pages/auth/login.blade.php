@@ -104,7 +104,7 @@ public function login(): void
                     <div class="text-center mt-8 pt-6 border-t border-white/5">
                         <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">
                             Novo por aqui? 
-                            <a class="text-blue-500 hover:text-blue-400 transition ml-1" href="{{ route('register') }}" wire:navigate>
+                            <a class="text-blue-500 hover:text-blue-400 transition ml-1" href="{{ route('auth.register') }}" wire:navigate>
                                 Criar Novo Perfil
                             </a>
                         </p>

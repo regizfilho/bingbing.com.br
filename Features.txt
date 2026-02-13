@@ -3,18 +3,6 @@ Também deixei em formato mais técnico, pensando em arquitetura limpa (sei que 
 
 ---
 
-## 🔹 Gestão da Conta
-
-* Soft delete de conta (permitir usuário deletar conta)
-* Sistema de banimento:
-
-  * Banimento manual via admin
-  * Campo `banned_at`
-  * Campo `ban_reason`
-  * Middleware bloqueando login se banido
-
----
-
 ## 🔹 Sistema de Verificação
 
 * Selo de verificado
@@ -22,99 +10,6 @@ Também deixei em formato mais técnico, pensando em arquitetura limpa (sei que 
   * Flag booleana `verified`
   * Exibição visual no perfil
   * Controle exclusivo do admin
-
----
-
-
----
-
-# 💰 3️⃣ Sistema de Créditos & Pacotes
-
-## 🔹 Pacotes
-
-* Criar / editar / remover pacotes
-
-  * Free
-  * Basic
-  * Premium
-* Valor
-* Quantidade de créditos
-* Status ativo/inativo
-
----
-
-## 🔹 Gestão de Créditos
-
-* Adicionar crédito manualmente
-* Remover crédito
-* Histórico completo de alterações
-
-  * tipo (compra, admin, reembolso, uso em partida)
-  * valor
-  * data
-  * responsável (admin ou sistema)
-
----
-
-## 🔹 Reembolso
-
-* Solicitação de reembolso
-* Aprovação / Reprovação pelo admin
-* Registro de histórico
-* Ajuste automático de créditos
-
----
-
-# 📊 4️⃣ Admin – Dashboard & Analytics
-
-## 🔹 Dashboard Geral
-
-Indicadores principais:
-
-* Quantidade total de contas
-* Contas criadas hoje
-* Usuários online (contador em tempo real)
-* Quantidade de partidas
-* Créditos em circulação
-* Créditos comprados
-* Faturamento:
-
-  * Diário
-  * Mensal
-  * Anual
-* Pacotes mais vendidos
-
----
-
-## 🔹 Usuários em Tempo Real
-
-* Contador ao vivo:
-
-  * Usuários online
-  * Novos registros
-  * Origem do tráfego (links de origem)
-
----
-
-## 🔹 Gestão Completa de Usuários
-
-Visualizar:
-
-* Perfil completo
-* Último acesso
-* Estatísticas gerais
-* Créditos atuais
-* Total gasto
-* Partidas:
-
-  * free
-  * basic
-  * premium
-* Ranking
-* Histórico financeiro
-* Histórico de créditos
-
----
 
 
 # 💬 7️⃣ Sistema de Feedback

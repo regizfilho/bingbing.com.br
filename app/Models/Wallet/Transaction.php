@@ -13,6 +13,7 @@ class Transaction extends Model
     protected $fillable = [
         'uuid',
         'wallet_id',
+        'package_id',
         'type',
         'amount',
         'balance_after',
@@ -56,6 +57,11 @@ class Transaction extends Model
     public function coupon()
     {
         return $this->belongsTo(Coupon::class);
+    }
+
+    public function package()
+    {
+        return $this->belongsTo(Package::class);
     }
 
     public function getRouteKeyName()

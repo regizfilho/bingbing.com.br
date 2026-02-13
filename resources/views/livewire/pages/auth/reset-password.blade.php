@@ -49,7 +49,7 @@ $resetPassword = function () {
     }
 
     Session::flash('status', __($status));
-    $this->redirectRoute('login', navigate: true);
+    $this->redirectRoute('auth.login', navigate: true);
 };
 
 ?>
@@ -118,7 +118,7 @@ $resetPassword = function () {
 
         {{-- Link de retorno --}}
         <div class="text-center mt-6">
-            <a href="{{ route('login') }}" wire:navigate class="text-[10px] font-black text-slate-600 hover:text-blue-500 uppercase tracking-widest italic transition-colors">
+            <a href="{{ route('auth.login') }}" wire:navigate class="text-[10px] font-black text-slate-600 hover:text-blue-500 uppercase tracking-widest italic transition-colors">
                 ← Voltar para Identificação
             </a>
         </div>

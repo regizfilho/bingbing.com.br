@@ -121,7 +121,7 @@ $register = function () {
                     <div class="text-center mt-8 pt-6 border-t border-white/5">
                         <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">
                             Já possui credenciais? 
-                            <a class="text-purple-400 hover:text-purple-300 transition ml-1" href="{{ route('login') }}">
+                            <a class="text-purple-400 hover:text-purple-300 transition ml-1" href="{{ route('auth.login') }}">
                                 Acessar Terminal
                             </a>
                         </p>

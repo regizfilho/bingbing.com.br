@@ -130,7 +130,7 @@ new #[Layout('layouts.guest')] class extends Component
                     <div class="text-center mt-6 pt-6 border-t border-white/5">
                         <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">
                             Já tem uma conta? 
-                            <a class="text-purple-400 hover:text-purple-300 transition ml-1" href="{{ route('login') }}" wire:navigate>
+                            <a class="text-purple-400 hover:text-purple-300 transition ml-1" href="{{ route('auth.login') }}" wire:navigate>
                                 Fazer Login
                             </a>
                         </p>

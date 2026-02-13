@@ -1,55 +1,141 @@
 <?php
 
 use App\Http\Controllers\Auth\SessionController;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
-Route::view('/', 'leading');
+/*
+|--------------------------------------------------------------------------
+| Web Routes - Laravel 12
+|--------------------------------------------------------------------------
+*/
 
-Route::middleware('guest')->group(function () {
-    Route::livewire('/login', 'pages::auth.login')->name('login');
-    Route::livewire('/register', 'pages::auth.register')->name('register');
-    Route::livewire('/forgot-password', 'pages::auth.forgot-password')->name('forgot-request');
-    Route::livewire('reset-password/{token}', 'pages::auth.reset-password')
-        ->name('password.reset');
-});
+Route::middleware('track')->group(function () {
 
-Route::middleware(['auth'])->group(function () {
+    Route::view('/', 'leading')->name('home');
 
-    Route::middleware(['firewall'])->group(function () {
-        Route::livewire('/', 'pages::admin.index')->name('admin');
-        Route::livewire('/pages', 'pages::admin.pages.index')->name('admin.pages.index');
-        Route::livewire('/security', 'pages::admin.security.index')->name('admin.security.index');
-        Route::livewire('/marketing/coupon', 'pages::admin.marketing.coupon')->name('admin.marketing.coupon');
+    /*
+    |--------------------------------------------------------------------------
+    | Guest Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware('guest')->group(function () {
+        Route::prefix('auth')->name('auth.')->group(function () {
+            Route::livewire('/login', 'pages::auth.login')->name('login');
+            Route::livewire('/register', 'pages::auth.register')->name('register');
+            Route::livewire('/forgot-password', 'pages::auth.forgot-password')->name('forgot-password');
+            Route::livewire('/reset-password/{token}', 'pages::auth.reset-password')
+                ->name('reset-password');
+        });
     });
 
+    /*
+    |--------------------------------------------------------------------------
+    | Authenticated Routes
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware('auth')->group(function () {
 
-    Route::livewire('/player/profile/{uuid?}', 'pages::player.profile')->name('player.profile');
+        /*
+        |--------------------------------------------------------------------------
+        | Admin (Firewall Protected)
+        |--------------------------------------------------------------------------
+        */
+        Route::prefix('admin')
+            ->middleware('firewall')
+            ->name('admin.')
+            ->group(function () {
 
-    Route::livewire('/dashboard', 'pages::dashboard.index')->name('dashboard');
+                Route::livewire('/', 'pages::admin.index')->name('index');
+                Route::livewire('/pages', 'pages::admin.pages.index')->name('pages.index');
+                Route::livewire('/security', 'pages::admin.security.index')->name('security.index');
 
-    // Wallet
-    Route::livewire('/wallet', 'pages::wallet.index')->name('wallet.index');
-    Route::livewire('/wallet/transactions', 'pages::wallet.transactions')->name('wallet.transactions');
+                Route::prefix('marketing')->name('marketing.')->group(function () {
+                    Route::livewire('/coupon', 'pages::admin.marketing.coupon')->name('coupon');
+                    Route::livewire('/coupon/analytics', 'pages::admin.marketing.coupon-analytics')->name('coupon.analytics');
+                });
+                Route::prefix('finance')->name('finance.')->group(function () {
+                    Route::livewire('/', 'pages::admin.finance.index')->name('home');
+                    Route::livewire('/packs', 'pages::admin.finance.packs')->name('packs');
+                    Route::livewire('/refound', 'pages::admin.finance.refound')->name('refound');
+                    Route::livewire('/credit', 'pages::admin.finance.credit')->name('credit');
+                });
+                Route::prefix('users')->name('users.')->group(function () {
+                    Route::livewire('/', 'pages::admin.users.index')->name('home');
+                    Route::livewire('/profile/{uuid}', 'pages::admin.users.profile')->name('profile');
+                    Route::livewire('/on', 'pages::admin.users.live')->name('live');
+                    Route::livewire('/anaytics', 'pages::admin.users.anaytics')->name('anaytics');
+                });
+            });
 
-    // Games (HOST)
-    Route::livewire('/games', 'pages::games.index')->name('games.index');
-    Route::livewire('/games/create', 'pages::games.create')->name('games.create');
-    Route::livewire('/games/{uuid}/edit', 'pages::games.edit')->name('games.edit');
-    Route::livewire('/games/{uuid}', 'pages::games.play')->name('games.play');
+        /*
+        |--------------------------------------------------------------------------
+        | Dashboard
+        |--------------------------------------------------------------------------
+        */
+        Route::livewire('/dashboard', 'pages::dashboard.index')->name('dashboard');
 
-    // Join (requer auth)
-    Route::livewire('/join/{invite_code}', 'pages::games.join')->name('games.join');
+        /*
+        |--------------------------------------------------------------------------
+        | Player
+        |--------------------------------------------------------------------------
+        */
+        Route::prefix('player')->name('player.')->group(function () {
+            Route::livewire('/profile/{uuid?}', 'pages::player.profile')->name('profile');
+        });
 
-    // Rankings
-    Route::livewire('/rankings', 'pages::rankings.index')->name('rankings.index');
-});
+        /*
+        |--------------------------------------------------------------------------
+        | Wallet
+        |--------------------------------------------------------------------------
+        */
+        Route::prefix('wallet')->name('wallet.')->group(function () {
+            Route::livewire('/', 'pages::wallet.index')->name('index');
+            Route::livewire('/transactions', 'pages::wallet.transactions')->name('transactions');
+        });
 
-// Rota PÚBLICA para tela de display (TV/telão)
-Route::livewire('/display/{uuid}', 'pages::games.display')->name('games.display');
+        /*
+        |--------------------------------------------------------------------------
+        | Games (Host)
+        |--------------------------------------------------------------------------
+        */
+        Route::prefix('games')->name('games.')->group(function () {
+            Route::livewire('/', 'pages::games.index')->name('index');
+            Route::livewire('/create', 'pages::games.create')->name('create');
+            Route::livewire('/{uuid}/edit', 'pages::games.edit')->name('edit');
+            Route::livewire('/{uuid}', 'pages::games.play')->name('play');
+        });
 
-Route::post('/logout', [SessionController::class, 'destroy'])
-    ->middleware('auth')
-    ->name('logout');
+        /*
+        |--------------------------------------------------------------------------
+        | Join Game
+        |--------------------------------------------------------------------------
+        */
+        Route::livewire('/join/{invite_code}', 'pages::games.join')->name('games.join');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Rankings
+        |--------------------------------------------------------------------------
+        */
+        Route::livewire('/rankings', 'pages::rankings.index')->name('rankings.index');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Logout
+        |--------------------------------------------------------------------------
+        */
+        Route::post('/logout', [SessionController::class, 'destroy'])
+            ->name('logout');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Public Display (TV / Telão)
+    |--------------------------------------------------------------------------
+    */
+    Route::livewire('/display/{uuid}', 'pages::games.display')
+        ->name('games.display');
+
+}); // Fim do middleware track
 
 require __DIR__ . '/auth.php';

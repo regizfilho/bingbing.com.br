@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('packages', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->decimal('credits', 10, 2);
+            $table->integer('credits'); // MUDOU: era decimal, agora é integer
             $table->decimal('price_brl', 10, 2);
             $table->boolean('is_active')->default(true);
             $table->integer('order')->default(0);

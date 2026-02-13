@@ -135,8 +135,8 @@
                         Dashboard
                     </a>
                 @else
-                    <a href="{{ route('login') }}" class="text-sm font-medium text-slate-400 hover:text-white transition">Entrar</a>
-                    <a href="{{ route('register') }}" class="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-medium text-white shadow-lg shadow-blue-600/20 transition-all">
+                    <a href="{{ route('auth.login') }}" class="text-sm font-medium text-slate-400 hover:text-white transition">Entrar</a>
+                    <a href="{{ route('auth.register') }}" class="bg-blue-600 hover:bg-blue-500 px-6 py-2.5 rounded-xl text-sm font-medium text-white shadow-lg shadow-blue-600/20 transition-all">
                         Criar conta
                     </a>
                 @endauth
@@ -168,7 +168,7 @@
                 </p>
 
                 <div class="flex flex-col sm:flex-row gap-4 pt-4">
-                    <a href="{{ route('register') }}" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-xl font-semibold transition-all shadow-xl shadow-blue-600/25 active:scale-[0.98] text-center">
+                    <a href="{{ route('auth.register') }}" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-xl font-semibold transition-all shadow-xl shadow-blue-600/25 active:scale-[0.98] text-center">
                         Começar a jogar
                     </a>
                     <a href="#como-funciona" class="bg-white/5 hover:bg-white/10 text-white px-8 py-4 rounded-xl font-semibold transition-all text-center border border-white/10">
@@ -412,7 +412,7 @@
                     Crie sua conta gratuita e comece agora mesmo. Não precisa de cartão de crédito.
                 </p>
                 <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                    <a href="{{ route('register') }}" class="bg-white text-blue-600 hover:bg-white/90 px-8 py-4 rounded-xl font-semibold transition-all shadow-xl active:scale-[0.98]">
+                    <a href="{{ route('auth.register') }}" class="bg-white text-blue-600 hover:bg-white/90 px-8 py-4 rounded-xl font-semibold transition-all shadow-xl active:scale-[0.98]">
                         Criar conta gratuita
                     </a>
                     <a href="#como-funciona" class="bg-white/10 text-white hover:bg-white/20 px-8 py-4 rounded-xl font-semibold transition-all border border-white/20">

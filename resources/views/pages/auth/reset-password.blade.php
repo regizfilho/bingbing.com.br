@@ -52,7 +52,7 @@ new #[Layout('layouts.guest')] class extends Component
         }
 
         session()->flash('status', __($status));
-        $this->redirect(route('login'), navigate: true);
+        $this->redirect(route('auth.login'), navigate: true);
     }
 }; ?>
 
@@ -121,7 +121,7 @@ new #[Layout('layouts.guest')] class extends Component
                     </button>
                     
                     <div class="text-center mt-8 pt-6 border-t border-white/5">
-                        <a class="text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition italic" href="{{ route('login') }}" wire:navigate>
+                        <a class="text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition italic" href="{{ route('auth.login') }}" wire:navigate>
                             ← Voltar para Identificação
                         </a>
                     </div>

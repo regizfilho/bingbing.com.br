@@ -42,7 +42,7 @@ new #[Layout('layouts.app')] class extends Component {
             if (Auth::check()) {
                 $this->uuid = Auth::user()->uuid;
             } else {
-                return redirect()->route('login');
+                return redirect()->route('auth.login');
             }
         } else {
             $this->uuid = $uuid;

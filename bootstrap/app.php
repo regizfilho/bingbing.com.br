@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\TrackUserActivity;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -14,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
         'firewall' => \App\Http\Middleware\FirewallMiddleware::class,
+        'track' => TrackUserActivity::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
