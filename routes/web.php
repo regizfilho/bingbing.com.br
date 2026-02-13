@@ -136,6 +136,8 @@ Route::middleware('track')->group(function () {
     Route::livewire('/display/{uuid}', 'pages::games.display')
         ->name('games.display');
 
+    Route::livewire('/{slug}', 'pages::index')->name('pages');
+
 }); // Fim do middleware track
 
 require __DIR__ . '/auth.php';

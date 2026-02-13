@@ -171,9 +171,9 @@
                     <a href="{{ route('auth.register') }}" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-xl font-semibold transition-all shadow-xl shadow-blue-600/25 active:scale-[0.98] text-center">
                         Começar a jogar
                     </a>
-                    <a href="#como-funciona" class="bg-white/5 hover:bg-white/10 text-white px-8 py-4 rounded-xl font-semibold transition-all text-center border border-white/10">
+                    {{-- <a href="#como-funciona" class="bg-white/5 hover:bg-white/10 text-white px-8 py-4 rounded-xl font-semibold transition-all text-center border border-white/10">
                         Ver demonstração
-                    </a>
+                    </a> --}}
                 </div>
 
                 {{-- Stats --}}
@@ -451,9 +451,17 @@
                 <div>
                     <h5 class="text-xs font-bold text-white uppercase tracking-wider mb-4">Legal</h5>
                     <ul class="space-y-3 text-sm text-slate-500">
-                        <li><a href="#" class="hover:text-white transition">Termos de uso</a></li>
-                        <li><a href="#" class="hover:text-white transition">Privacidade</a></li>
-                        <li><a href="#" class="hover:text-white transition">Contato</a></li>
+                        <li>
+                            <a href="/termos-de-uso" class="hover:text-white transition">
+                                Termos de uso
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/politica-de-privacidade" class="hover:text-white transition">
+                                Política de privacidade
+                            </a>
+                        </li>
+                        <li><a href="mailton:contato@codepiper.com.br" class="hover:text-white transition">Contato</a></li>
                     </ul>
                 </div>
                 
@@ -467,15 +475,7 @@
                 </div>
             </div>
             
-            <div class="pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-4">
-                <p class="text-xs text-slate-700">
-                    © {{ date('Y') }} BingBing Social Club. Todos os direitos reservados.
-                </p>
-                <div class="flex gap-4 text-xs text-slate-700">
-                    <span>Feito com 🎲 no Brasil</span>
-                    <span>v2.6.0</span>
-                </div>
-            </div>
+            <livewire:footer />
         </div>
     </footer>
 
