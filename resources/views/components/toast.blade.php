@@ -32,8 +32,8 @@
                 <template x-if="type === 'info'"><span>!</span></template>
             </div>
             <div class="flex flex-col">
+                {{-- <span class="text-white/60 text-[8px] font-bold uppercase tracking-widest">Sistema de Créditos</span> --}}
                 <span class="text-white font-black uppercase italic text-[11px] tracking-[0.1em]" x-text="text"></span>
-                <span class="text-white/60 text-[8px] font-bold uppercase tracking-widest">Sistema de Créditos</span>
             </div>
         </div>
 

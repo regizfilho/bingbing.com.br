@@ -33,12 +33,12 @@ class GiftCard extends Model
         'expires_at' => 'datetime',
     ];
 
-    public function createdBy(): BelongsTo
+    public function createdByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
-    public function redeemedBy(): BelongsTo
+    public function redeemedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'redeemed_by_user_id');
     }

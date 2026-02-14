@@ -4,6 +4,8 @@ namespace App\Models\Wallet;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
 use App\Models\Coupon;
 
 class Transaction extends Model
@@ -14,6 +16,7 @@ class Transaction extends Model
         'uuid',
         'wallet_id',
         'package_id',
+        'gift_card_id',
         'type',
         'amount',
         'balance_after',
@@ -39,33 +42,54 @@ class Transaction extends Model
         'refunded_at' => 'datetime',
     ];
 
-    public function uniqueIds()
+    public function uniqueIds(): array
     {
         return ['uuid'];
     }
 
-    public function wallet()
+    public function wallet(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\Wallet\Wallet::class);
+        return $this->belongsTo(Wallet::class);
     }
 
-    public function transactionable()
+    public function transactionable(): MorphTo
     {
         return $this->morphTo();
     }
 
-    public function coupon()
+    public function coupon(): BelongsTo
     {
         return $this->belongsTo(Coupon::class);
     }
 
-    public function package()
+    public function package(): BelongsTo
     {
         return $this->belongsTo(Package::class);
     }
 
-    public function getRouteKeyName()
+    public function giftCard(): BelongsTo
+    {
+        return $this->belongsTo(GiftCard::class);
+    }
+
+    public function getRouteKeyName(): string
     {
         return 'uuid';
+    }
+
+    // Scopes úteis
+    public function scopeFromPackage($query, int $packageId)
+    {
+        return $query->where('package_id', $packageId);
+    }
+
+    public function scopeFromGiftCard($query, int $giftCardId)
+    {
+        return $query->where('gift_card_id', $giftCardId);
+    }
+
+    public function scopeWithPackageInfo($query)
+    {
+        return $query->with(['package', 'giftCard']);
     }
 }

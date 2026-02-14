@@ -11,28 +11,23 @@ use App\Models\Wallet\GiftCard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-#[Layout('layouts.admin')]
-#[Title('Gestão de Gift Cards')]
-class GiftCardManagement extends Component
-{
+
+new #[Layout('layouts.admin')] #[Title('Gestão de Gift Cards')] class extends Component {
     use WithPagination;
 
     public string $search = '';
-    public string $statusFilter = 'all'; // all, active, redeemed, expired
+    public string $statusFilter = 'all';
     public string $sort = 'desc';
 
-    // Drawer/Modal
     public bool $showCreateDrawer = false;
     public bool $showEditDrawer = false;
     public ?int $selectedGiftCardId = null;
 
-    // Criar Gift Card
     public float $creditValue = 0;
     public ?float $priceBrl = null;
     public ?string $description = null;
     public ?string $expiresAt = null;
 
-    // Editar Gift Card
     public ?string $editExpiresAt = null;
     public string $editStatus = 'active';
 
@@ -51,6 +46,22 @@ class GiftCardManagement extends Component
         return [
             'editExpiresAt' => 'nullable|date',
             'editStatus' => 'required|in:active,redeemed,expired',
+        ];
+    }
+
+    protected function messages(): array
+    {
+        return [
+            'creditValue.required' => 'O valor em créditos é obrigatório.',
+            'creditValue.numeric' => 'O valor deve ser numérico.',
+            'creditValue.min' => 'O valor mínimo é 1 crédito.',
+            'priceBrl.numeric' => 'O preço deve ser numérico.',
+            'priceBrl.min' => 'O preço não pode ser negativo.',
+            'description.max' => 'A descrição não pode ter mais de 500 caracteres.',
+            'expiresAt.date' => 'Data de expiração inválida.',
+            'expiresAt.after' => 'A data de expiração deve ser futura.',
+            'editStatus.required' => 'O status é obrigatório.',
+            'editStatus.in' => 'Status inválido.',
         ];
     }
 
@@ -107,6 +118,7 @@ class GiftCardManagement extends Component
     public function openCreateDrawer(): void
     {
         $this->reset(['creditValue', 'priceBrl', 'description', 'expiresAt']);
+        $this->resetValidation();
         $this->showCreateDrawer = true;
     }
 
@@ -114,6 +126,7 @@ class GiftCardManagement extends Component
     {
         $this->showCreateDrawer = false;
         $this->reset(['creditValue', 'priceBrl', 'description', 'expiresAt']);
+        $this->resetValidation();
     }
 
     public function createGiftCard(): void
@@ -139,7 +152,7 @@ class GiftCardManagement extends Component
 
             $this->closeCreateDrawer();
         } catch (\Exception $e) {
-            $this->dispatch('notify', type: 'error', text: $e->getMessage());
+            $this->dispatch('notify', type: 'error', text: 'Erro ao criar Gift Card: ' . $e->getMessage());
         }
     }
 
@@ -151,7 +164,10 @@ class GiftCardManagement extends Component
         if ($giftCard) {
             $this->editExpiresAt = $giftCard->expires_at?->format('Y-m-d\TH:i');
             $this->editStatus = $giftCard->status;
+            $this->resetValidation();
             $this->showEditDrawer = true;
+        } else {
+            $this->dispatch('notify', type: 'error', text: 'Gift Card não encontrado.');
         }
     }
 
@@ -159,6 +175,7 @@ class GiftCardManagement extends Component
     {
         $this->showEditDrawer = false;
         $this->reset(['selectedGiftCardId', 'editExpiresAt', 'editStatus']);
+        $this->resetValidation();
     }
 
     public function updateGiftCard(): void
@@ -169,7 +186,15 @@ class GiftCardManagement extends Component
             $giftCard = $this->selectedGiftCard;
 
             if (!$giftCard) {
-                throw new \Exception('Gift Card não encontrado.');
+                $this->dispatch('notify', type: 'error', text: 'Gift Card não encontrado.');
+                $this->closeEditDrawer();
+                return;
+            }
+
+            // Validar se pode mudar o status para redeemed
+            if ($this->editStatus === 'redeemed' && $giftCard->status !== 'redeemed') {
+                $this->dispatch('notify', type: 'error', text: 'Não é possível marcar como resgatado manualmente. O resgate deve ser feito pelo usuário.');
+                return;
             }
 
             $giftCard->update([
@@ -180,7 +205,7 @@ class GiftCardManagement extends Component
             $this->dispatch('notify', type: 'success', text: 'Gift Card atualizado com sucesso!');
             $this->closeEditDrawer();
         } catch (\Exception $e) {
-            $this->dispatch('notify', type: 'error', text: $e->getMessage());
+            $this->dispatch('notify', type: 'error', text: 'Erro ao atualizar: ' . $e->getMessage());
         }
     }
 
@@ -190,14 +215,17 @@ class GiftCardManagement extends Component
             $giftCard = GiftCard::findOrFail($id);
 
             if ($giftCard->status === 'redeemed') {
-                throw new \Exception('Não é possível deletar um Gift Card já resgatado.');
+                $this->dispatch('notify', type: 'error', text: 'Não é possível deletar um Gift Card já resgatado.');
+                return;
             }
 
             $giftCard->delete();
 
-            $this->dispatch('notify', type: 'success', text: 'Gift Card deletado.');
+            $this->dispatch('notify', type: 'success', text: 'Gift Card deletado com sucesso.');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            $this->dispatch('notify', type: 'error', text: 'Gift Card não encontrado.');
         } catch (\Exception $e) {
-            $this->dispatch('notify', type: 'error', text: $e->getMessage());
+            $this->dispatch('notify', type: 'error', text: 'Erro ao deletar: ' . $e->getMessage());
         }
     }
 
@@ -208,9 +236,13 @@ class GiftCardManagement extends Component
                 ->where('expires_at', '<=', now())
                 ->update(['status' => 'expired']);
 
-            $this->dispatch('notify', type: 'success', text: "{$updated} Gift Cards marcados como expirados.");
+            if ($updated > 0) {
+                $this->dispatch('notify', type: 'success', text: "{$updated} Gift Card(s) marcado(s) como expirado(s).");
+            } else {
+                $this->dispatch('notify', type: 'info', text: 'Nenhum Gift Card expirado encontrado.');
+            }
         } catch (\Exception $e) {
-            $this->dispatch('notify', type: 'error', text: $e->getMessage());
+            $this->dispatch('notify', type: 'error', text: 'Erro ao expirar Gift Cards: ' . $e->getMessage());
         }
     }
 
@@ -219,10 +251,7 @@ class GiftCardManagement extends Component
         $this->dispatch('copy-to-clipboard', text: $code);
         $this->dispatch('notify', type: 'success', text: 'Código copiado!');
     }
-
-   
-}
-
+};
 ?>
 
 <div class="p-6 min-h-screen">
@@ -235,13 +264,11 @@ class GiftCardManagement extends Component
             <p class="text-slate-400 text-sm mt-1">Crie, edite e gerencie códigos de presente</p>
         </div>
         <div class="flex gap-3">
-            <button 
-                wire:click="markAsExpired"
+            <button wire:click="markAsExpired"
                 class="px-4 py-2 bg-orange-600 hover:bg-orange-500 border border-orange-500/30 rounded-xl text-sm text-white transition-all font-bold">
                 🕐 Expirar Vencidos
             </button>
-            <button 
-                wire:click="openCreateDrawer"
+            <button wire:click="openCreateDrawer"
                 class="px-6 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-sm text-white font-bold transition-all shadow-lg">
                 + Criar Gift Card
             </button>
@@ -264,8 +291,10 @@ class GiftCardManagement extends Component
                 <div class="w-12 h-12 bg-emerald-500/10 rounded-xl flex items-center justify-center text-2xl">✅</div>
                 <span class="text-xs text-slate-500 uppercase font-bold">Ativos</span>
             </div>
-            <div class="text-3xl font-black text-emerald-400 mb-1">{{ number_format($this->statistics['active'], 0) }}</div>
-            <div class="text-xs text-slate-400">C$ {{ number_format($this->statistics['total_value_active'], 0) }} disponíveis</div>
+            <div class="text-3xl font-black text-emerald-400 mb-1">{{ number_format($this->statistics['active'], 0) }}
+            </div>
+            <div class="text-xs text-slate-400">C$ {{ number_format($this->statistics['total_value_active'], 0) }}
+                disponíveis</div>
         </div>
 
         <div class="bg-[#0f172a] border border-white/5 rounded-2xl p-6 shadow-xl">
@@ -273,8 +302,10 @@ class GiftCardManagement extends Component
                 <div class="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center text-2xl">📥</div>
                 <span class="text-xs text-slate-500 uppercase font-bold">Resgatados</span>
             </div>
-            <div class="text-3xl font-black text-blue-400 mb-1">{{ number_format($this->statistics['redeemed'], 0) }}</div>
-            <div class="text-xs text-slate-400">C$ {{ number_format($this->statistics['total_value_redeemed'], 0) }} resgatados</div>
+            <div class="text-3xl font-black text-blue-400 mb-1">{{ number_format($this->statistics['redeemed'], 0) }}
+            </div>
+            <div class="text-xs text-slate-400">C$ {{ number_format($this->statistics['total_value_redeemed'], 0) }}
+                resgatados</div>
         </div>
 
         <div class="bg-[#0f172a] border border-white/5 rounded-2xl p-6 shadow-xl">
@@ -282,7 +313,8 @@ class GiftCardManagement extends Component
                 <div class="w-12 h-12 bg-red-500/10 rounded-xl flex items-center justify-center text-2xl">⏰</div>
                 <span class="text-xs text-slate-500 uppercase font-bold">Expirados</span>
             </div>
-            <div class="text-3xl font-black text-red-400 mb-1">{{ number_format($this->statistics['expired'], 0) }}</div>
+            <div class="text-3xl font-black text-red-400 mb-1">{{ number_format($this->statistics['expired'], 0) }}
+            </div>
             <div class="text-xs text-slate-400">Não utilizados</div>
         </div>
     </div>
@@ -291,17 +323,16 @@ class GiftCardManagement extends Component
     <div class="bg-[#0f172a] border border-white/5 rounded-2xl p-6 mb-8 shadow-xl">
         <div class="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
             <div class="flex-1 relative">
-                <input 
-                    wire:model.live.debounce.400ms="search" 
-                    placeholder="Buscar por código, descrição ou usuário..."
+                <input wire:model.live.debounce.400ms="search" placeholder="Buscar por código, descrição ou usuário..."
                     class="w-full bg-[#111827] border border-white/10 rounded-xl px-5 py-3 text-sm text-white pl-12 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all">
-                <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none"
+                    stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
             </div>
 
-            <select 
-                wire:model.live="statusFilter"
+            <select wire:model.live="statusFilter"
                 class="bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
                 <option value="all">Todos os Status</option>
                 <option value="active">Ativos</option>
@@ -309,8 +340,7 @@ class GiftCardManagement extends Component
                 <option value="expired">Expirados</option>
             </select>
 
-            <select 
-                wire:model.live="sort"
+            <select wire:model.live="sort"
                 class="bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
                 <option value="desc">Mais Recentes</option>
                 <option value="asc">Mais Antigos</option>
@@ -341,27 +371,33 @@ class GiftCardManagement extends Component
                                     <div class="text-purple-400 text-lg">🎁</div>
                                     <div>
                                         <div class="flex items-center gap-2">
-                                            <span class="text-white font-black tracking-wider">{{ $card->code }}</span>
-                                            <button 
-                                                wire:click="copyCode('{{ $card->code }}')"
+                                            <span
+                                                class="text-white font-black tracking-wider">{{ $card->code }}</span>
+                                            <button wire:click="copyCode('{{ $card->code }}')"
                                                 class="text-purple-500 hover:text-purple-400 transition">
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor"
+                                                    viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                                        stroke-width="2"
+                                                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                                                 </svg>
                                             </button>
                                         </div>
-                                        <div class="text-slate-500 text-xs mt-1">{{ $card->created_at->format('d/m/Y H:i') }}</div>
+                                        <div class="text-slate-500 text-xs mt-1">
+                                            {{ $card->created_at->format('d/m/Y H:i') }}</div>
                                     </div>
                                 </div>
                             </td>
                             <td class="p-4">
                                 <div class="text-white font-bold">C$ {{ number_format($card->credit_value, 0) }}</div>
-                                @if($card->price_brl)
-                                    <div class="text-emerald-500 text-xs">R$ {{ number_format($card->price_brl, 2, ',', '.') }}</div>
+                                @if ($card->price_brl)
+                                    <div class="text-emerald-500 text-xs">R$
+                                        {{ number_format($card->price_brl, 2, ',', '.') }}</div>
                                 @endif
                             </td>
                             <td class="p-4">
-                                <span class="px-2 py-1 rounded text-xs font-bold
+                                <span
+                                    class="px-2 py-1 rounded text-xs font-bold
                                     {{ $card->source === 'admin' ? 'bg-indigo-500/10 text-indigo-400' : 'bg-cyan-500/10 text-cyan-400' }}">
                                     {{ $card->source === 'admin' ? '👤 Admin' : '💳 Compra' }}
                                 </span>
@@ -370,7 +406,8 @@ class GiftCardManagement extends Component
                                 {{ $card->createdBy?->name ?? 'Sistema' }}
                             </td>
                             <td class="p-4">
-                                <span class="px-3 py-1 rounded-full text-xs font-black uppercase
+                                <span
+                                    class="px-3 py-1 rounded-full text-xs font-black uppercase
                                     {{ $card->status === 'active' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : '' }}
                                     {{ $card->status === 'redeemed' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : '' }}
                                     {{ $card->status === 'expired' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : '' }}">
@@ -382,14 +419,12 @@ class GiftCardManagement extends Component
                             </td>
                             <td class="p-4 text-right">
                                 <div class="flex items-center justify-end gap-2">
-                                    <button 
-                                        wire:click="openEditDrawer({{ $card->id }})"
+                                    <button wire:click="openEditDrawer({{ $card->id }})"
                                         class="text-indigo-400 hover:text-indigo-300 transition px-3 py-1 rounded-lg hover:bg-indigo-500/10 text-xs font-medium">
                                         Editar
                                     </button>
-                                    @if($card->status !== 'redeemed')
-                                        <button 
-                                            wire:click="deleteGiftCard({{ $card->id }})"
+                                    @if ($card->status !== 'redeemed')
+                                        <button wire:click="deleteGiftCard({{ $card->id }})"
                                             wire:confirm="Tem certeza que deseja deletar este Gift Card?"
                                             class="text-red-400 hover:text-red-300 transition px-3 py-1 rounded-lg hover:bg-red-500/10 text-xs font-medium">
                                             Deletar
@@ -401,8 +436,10 @@ class GiftCardManagement extends Component
                     @empty
                         <tr>
                             <td colspan="7" class="p-8 text-center text-slate-400">
-                                <svg class="w-12 h-12 mx-auto mb-2 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                <svg class="w-12 h-12 mx-auto mb-2 text-slate-500" fill="none"
+                                    stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                                 </svg>
                                 Nenhum Gift Card encontrado.
                             </td>
@@ -418,7 +455,7 @@ class GiftCardManagement extends Component
     </div>
 
     {{-- DRAWER: CRIAR GIFT CARD --}}
-    @if($showCreateDrawer)
+    @if ($showCreateDrawer)
         <x-drawer :show="$showCreateDrawer" max-width="md" wire:model="showCreateDrawer">
             <div class="border-b border-white/10 pb-6 mb-6">
                 <div class="flex items-center justify-between">
@@ -426,11 +463,11 @@ class GiftCardManagement extends Component
                         <h2 class="text-xl font-bold text-white">Criar Novo Gift Card</h2>
                         <p class="text-slate-400 text-sm">Gerar código promocional</p>
                     </div>
-                    <button 
-                        wire:click="closeCreateDrawer"
+                    <button wire:click="closeCreateDrawer"
                         class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-white/5 transition">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
@@ -439,56 +476,49 @@ class GiftCardManagement extends Component
             <form wire:submit="createGiftCard" class="space-y-6">
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-2">Valor em Créditos (C$) *</label>
-                    <input 
-                        type="number" 
-                        wire:model.defer="creditValue" 
-                        step="0.01" 
-                        min="1"
+                    <input type="number" wire:model.defer="creditValue" step="0.01" min="1"
                         class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                         placeholder="Ex: 100">
-                    @error('creditValue') <p class="text-red-400 text-xs mt-1">{{ $message }}</p> @enderror
+                    @error('creditValue')
+                        <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
+                    @enderror
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-2">Preço em Reais (R$) - Opcional</label>
-                    <input 
-                        type="number" 
-                        wire:model.defer="priceBrl" 
-                        step="0.01" 
-                        min="0"
+                    <input type="number" wire:model.defer="priceBrl" step="0.01" min="0"
                         class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                         placeholder="Ex: 100.00 (deixe vazio se gratuito)">
-                    @error('priceBrl') <p class="text-red-400 text-xs mt-1">{{ $message }}</p> @enderror
+                    @error('priceBrl')
+                        <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
+                    @enderror
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-2">Descrição</label>
-                    <textarea 
-                        wire:model.defer="description" 
-                        rows="3"
+                    <textarea wire:model.defer="description" rows="3"
                         class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                         placeholder="Ex: Promoção de Natal 2025"></textarea>
-                    @error('description') <p class="text-red-400 text-xs mt-1">{{ $message }}</p> @enderror
+                    @error('description')
+                        <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
+                    @enderror
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-2">Data de Expiração (Opcional)</label>
-                    <input 
-                        type="datetime-local" 
-                        wire:model.defer="expiresAt"
+                    <input type="datetime-local" wire:model.defer="expiresAt"
                         class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-                    @error('expiresAt') <p class="text-red-400 text-xs mt-1">{{ $message }}</p> @enderror
+                    @error('expiresAt')
+                        <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
+                    @enderror
                 </div>
 
                 <div class="flex gap-3 pt-4">
-                    <button 
-                        type="submit"
+                    <button type="submit"
                         class="flex-1 bg-purple-600 hover:bg-purple-500 text-white py-3 rounded-xl text-sm font-medium transition-all">
                         Criar Gift Card
                     </button>
-                    <button 
-                        type="button"
-                        wire:click="closeCreateDrawer"
+                    <button type="button" wire:click="closeCreateDrawer"
                         class="px-6 bg-gray-800 hover:bg-gray-700 text-slate-300 py-3 rounded-xl text-sm font-medium transition-all">
                         Cancelar
                     </button>
@@ -498,7 +528,7 @@ class GiftCardManagement extends Component
     @endif
 
     {{-- DRAWER: EDITAR GIFT CARD --}}
-    @if($showEditDrawer && $this->selectedGiftCard)
+    @if ($showEditDrawer && $this->selectedGiftCard)
         <x-drawer :show="$showEditDrawer" max-width="lg" wire:model="showEditDrawer">
             <div class="border-b border-white/10 pb-6 mb-6">
                 <div class="flex items-center justify-between">
@@ -506,11 +536,11 @@ class GiftCardManagement extends Component
                         <h2 class="text-xl font-bold text-white">Editar Gift Card</h2>
                         <p class="text-slate-400 text-sm">{{ $this->selectedGiftCard->code }}</p>
                     </div>
-                    <button 
-                        wire:click="closeEditDrawer"
+                    <button wire:click="closeEditDrawer"
                         class="text-slate-400 hover:text-white p-2 rounded-lg hover:bg-white/5 transition">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
@@ -521,7 +551,8 @@ class GiftCardManagement extends Component
                 <div class="grid grid-cols-2 gap-4 text-sm">
                     <div>
                         <span class="text-slate-500">Valor:</span>
-                        <span class="text-white font-bold ml-2">C$ {{ number_format($this->selectedGiftCard->credit_value, 0) }}</span>
+                        <span class="text-white font-bold ml-2">C$
+                            {{ number_format($this->selectedGiftCard->credit_value, 0) }}</span>
                     </div>
                     <div>
                         <span class="text-slate-500">Preço:</span>
@@ -531,45 +562,50 @@ class GiftCardManagement extends Component
                     </div>
                     <div>
                         <span class="text-slate-500">Origem:</span>
-                        <span class="text-white font-bold ml-2">{{ $this->selectedGiftCard->source === 'admin' ? '👤 Admin' : '💳 Compra' }}</span>
+                        <span
+                            class="text-white font-bold ml-2">{{ $this->selectedGiftCard->source === 'admin' ? '👤 Admin' : '💳 Compra' }}</span>
                     </div>
                     <div>
                         <span class="text-slate-500">Criado por:</span>
-                        <span class="text-white font-bold ml-2">{{ $this->selectedGiftCard->createdBy?->name ?? 'Sistema' }}</span>
+                        <span
+                            class="text-white font-bold ml-2">{{ $this->selectedGiftCard->createdBy?->name ?? 'Sistema' }}</span>
                     </div>
                 </div>
 
-                @if($this->selectedGiftCard->description)
+                @if ($this->selectedGiftCard->description)
                     <div class="pt-4 border-t border-white/5">
                         <span class="text-slate-500 text-xs">Descrição:</span>
                         <p class="text-white text-sm mt-1">{{ $this->selectedGiftCard->description }}</p>
                     </div>
                 @endif
 
-                @if($this->selectedGiftCard->redeemed_by_user_id)
+                @if ($this->selectedGiftCard->redeemed_by_user_id)
                     <div class="pt-4 border-t border-white/5 bg-blue-500/5 -m-6 mt-4 p-6 rounded-b-xl">
                         <div class="text-blue-400 text-sm font-bold mb-2">✅ Resgatado</div>
                         <div class="text-xs text-slate-400">
                             Por: <span class="text-white">{{ $this->selectedGiftCard->redeemedBy?->name }}</span><br>
-                            Em: <span class="text-white">{{ $this->selectedGiftCard->redeemed_at?->format('d/m/Y H:i:s') }}</span>
+                            Em: <span
+                                class="text-white">{{ $this->selectedGiftCard->redeemed_at?->format('d/m/Y H:i:s') }}</span>
                         </div>
                     </div>
                 @endif
             </div>
 
             {{-- Histórico de Resgates --}}
-            @if($this->selectedGiftCard->redemptions->count() > 0)
+            @if ($this->selectedGiftCard->redemptions->count() > 0)
                 <div class="mb-6">
                     <h3 class="text-sm font-bold text-white mb-4">📥 Histórico de Resgates</h3>
                     <div class="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
-                        @foreach($this->selectedGiftCard->redemptions as $redemption)
+                        @foreach ($this->selectedGiftCard->redemptions as $redemption)
                             <div class="bg-black/20 border border-white/5 rounded-lg p-3 text-xs">
                                 <div class="flex justify-between items-center">
                                     <span class="text-white font-bold">{{ $redemption->user->name }}</span>
-                                    <span class="text-slate-500">{{ $redemption->created_at->format('d/m/Y H:i') }}</span>
+                                    <span
+                                        class="text-slate-500">{{ $redemption->created_at->format('d/m/Y H:i') }}</span>
                                 </div>
                                 <div class="text-slate-400 mt-1">
-                                    IP: {{ $redemption->ip_address }} | C$ {{ number_format($redemption->credit_value, 0) }}
+                                    IP: {{ $redemption->ip_address }} | C$
+                                    {{ number_format($redemption->credit_value, 0) }}
                                 </div>
                             </div>
                         @endforeach
@@ -581,34 +617,32 @@ class GiftCardManagement extends Component
             <form wire:submit="updateGiftCard" class="space-y-6">
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-2">Status</label>
-                    <select 
-                        wire:model.defer="editStatus"
+                    <select wire:model.defer="editStatus"
                         class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
                         <option value="active">Ativo</option>
                         <option value="expired">Expirado</option>
                         <option value="redeemed">Resgatado</option>
                     </select>
-                    @error('editStatus') <p class="text-red-400 text-xs mt-1">{{ $message }}</p> @enderror
+                    @error('editStatus')
+                        <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
+                    @enderror
                 </div>
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-2">Data de Expiração</label>
-                    <input 
-                        type="datetime-local" 
-                        wire:model.defer="editExpiresAt"
+                    <input type="datetime-local" wire:model.defer="editExpiresAt"
                         class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-                    @error('editExpiresAt') <p class="text-red-400 text-xs mt-1">{{ $message }}</p> @enderror
+                    @error('editExpiresAt')
+                        <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
+                    @enderror
                 </div>
 
                 <div class="flex gap-3 pt-4">
-                    <button 
-                        type="submit"
+                    <button type="submit"
                         class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl text-sm font-medium transition-all">
                         Salvar Alterações
                     </button>
-                    <button 
-                        type="button"
-                        wire:click="closeEditDrawer"
+                    <button type="button" wire:click="closeEditDrawer"
                         class="px-6 bg-gray-800 hover:bg-gray-700 text-slate-300 py-3 rounded-xl text-sm font-medium transition-all">
                         Cancelar
                     </button>
@@ -620,20 +654,22 @@ class GiftCardManagement extends Component
     <x-toast position="top-right" />
 
     @script
-    <script>
-        $wire.on('copy-to-clipboard', (event) => {
-            navigator.clipboard.writeText(event.text);
-        });
-    </script>
+        <script>
+            $wire.on('copy-to-clipboard', (event) => {
+                navigator.clipboard.writeText(event.text);
+            });
+        </script>
     @endscript
 
     <style>
         .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
         }
+
         .custom-scrollbar::-webkit-scrollbar-track {
             background: #111827;
         }
+
         .custom-scrollbar::-webkit-scrollbar-thumb {
             background: #374151;
             border-radius: 3px;

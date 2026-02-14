@@ -10,10 +10,7 @@ use App\Models\Wallet\GiftCard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-#[Layout('layouts.app')]
-#[Title('Gift Cards')]
-class GiftCardIndex extends Component
-{
+new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
     public string $tab = 'redeem'; // redeem, purchase, history
     
     // Resgatar
@@ -47,7 +44,8 @@ class GiftCardIndex extends Component
     #[Computed]
     public function myGiftCards()
     {
-        return GiftCard::where('created_by_user_id', $this->user->id)
+        return GiftCard::with('redeemedByUser')
+            ->where('created_by_user_id', $this->user->id)
             ->where('source', 'purchase')
             ->latest()
             ->take(10)
@@ -136,7 +134,7 @@ class GiftCardIndex extends Component
                     $this->user->id,
                     $message['title'],
                     $message['body'],
-                    route('wallet.gift-cards')
+                    route('wallet.gift')
                 );
 
                 $this->dispatch('notify', type: 'success', text: "Gift Card criado! Código: {$giftCard->code}");
@@ -166,9 +164,9 @@ class GiftCardIndex extends Component
                     throw new \Exception('Este Gift Card não pode ser resgatado (já usado ou expirado).');
                 }
 
-                if ($giftCard->created_by_user_id === $this->user->id) {
-                    throw new \Exception('Você não pode resgatar seu próprio Gift Card.');
-                }
+                // if ($giftCard->created_by_user_id === $this->user->id) {
+                //     throw new \Exception('Você não pode resgatar seu próprio Gift Card.');
+                // }
 
                 $wallet = $this->user->wallet ?? $this->user->wallet()->create(['balance' => 0]);
 
@@ -372,7 +370,7 @@ class GiftCardIndex extends Component
                         @forelse($this->myGiftCards as $card)
                             <div class="bg-white/[0.02] border border-white/5 rounded-2xl p-6 hover:bg-white/[0.04] transition-all">
                                 <div class="flex justify-between items-start mb-4">
-                                    <div>
+                                    <div class="flex-1">
                                         <div class="text-xs text-slate-500 uppercase mb-2">Código</div>
                                         <div class="flex items-center gap-3">
                                             <span class="text-lg font-black text-white italic tracking-wider">{{ $card->code }}</span>
@@ -393,7 +391,7 @@ class GiftCardIndex extends Component
                                     </span>
                                 </div>
 
-                                <div class="grid grid-cols-2 gap-4 text-xs">
+                                <div class="grid grid-cols-2 gap-4 text-xs mb-4">
                                     <div>
                                         <span class="text-slate-500">Valor:</span>
                                         <span class="text-white font-black ml-2">C$ {{ number_format($card->credit_value, 0) }}</span>
@@ -405,14 +403,30 @@ class GiftCardIndex extends Component
                                 </div>
 
                                 @if($card->expires_at)
-                                    <div class="mt-3 text-xs text-slate-400">
-                                        Expira: {{ $card->expires_at->format('d/m/Y H:i') }}
+                                    <div class="text-xs text-slate-400 mb-3">
+                                        <span class="text-slate-500">Expira:</span> {{ $card->expires_at->format('d/m/Y H:i') }}
                                     </div>
                                 @endif
 
-                                @if($card->redeemed_by_user_id)
-                                    <div class="mt-3 text-xs text-blue-400">
-                                        Resgatado em {{ $card->redeemed_at->format('d/m/Y H:i') }}
+                                @if($card->status === 'redeemed' && $card->redeemedByUser)
+                                    <div class="mt-4 pt-4 border-t border-white/5">
+                                        <div class="flex items-start gap-3">
+                                            <div class="w-10 h-10 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-center text-lg flex-shrink-0">
+                                                👤
+                                            </div>
+                                            <div class="flex-1 min-w-0">
+                                                <div class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-2">Resgatado por</div>
+                                                <div class="text-sm font-black text-white truncate">
+                                                    {{ $card->redeemedByUser->name ?? $card->redeemedByUser->nickname ?? 'Usuário' }}
+                                                </div>
+                                                <div class="text-xs text-slate-400 truncate mt-1">
+                                                    {{ $card->redeemedByUser->email }}
+                                                </div>
+                                                <div class="text-[10px] text-slate-500 mt-2">
+                                                    {{ $card->redeemed_at->format('d/m/Y') }} às {{ $card->redeemed_at->format('H:i') }}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 @endif
                             </div>
