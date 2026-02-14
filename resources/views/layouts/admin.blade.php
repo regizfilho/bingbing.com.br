@@ -63,6 +63,7 @@
                         <x-admin.sidebar.item route="admin.finance.packs" label="Pacotes" />
                         <x-admin.sidebar.item route="admin.finance.refound" label="Reembolso" />
                         <x-admin.sidebar.item route="admin.finance.credit" label="Créditos" />
+                        <x-admin.sidebar.item route="admin.finance.gift" label="Gift Card" />
                     </x-admin.sidebar.group>
                 </div>
 

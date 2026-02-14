@@ -50,6 +50,7 @@ Route::middleware('track')->group(function () {
                 Route::livewire('/packs', 'pages::admin.finance.packs')->name('packs');
                 Route::livewire('/refound', 'pages::admin.finance.refound')->name('refound');
                 Route::livewire('/credit', 'pages::admin.finance.credit')->name('credit');
+                Route::livewire('/gift', 'pages::admin.finance.gift')->name('gift');
             });
 
             Route::prefix('users')->name('users.')->group(function () {
