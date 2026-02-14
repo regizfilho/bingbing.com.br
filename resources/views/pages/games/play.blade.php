@@ -197,6 +197,22 @@ new class extends Component {
                 'round_number' => $this->game->current_round,
                 'won_at' => now(),
             ]);
+
+            // 🏆 ENVIAR NOTIFICAÇÃO PUSH DE VITÓRIA
+            if ($prize) {
+                $pushService = app(\App\Services\PushNotificationService::class);
+                $message = \App\Services\NotificationMessages::bingoWinner(
+                    $this->game->name,
+                    $prize->name
+                );
+
+                $pushService->notifyUser(
+                    $card->player->user_id,
+                    $message['title'],
+                    $message['body'],
+                    route('games.play', $this->game->uuid)
+                );
+            }
         });
 
         $this->finishAction($prize ? 'Prêmio concedido!' : 'Bingo de Honra registrado!');

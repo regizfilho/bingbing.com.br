@@ -69,6 +69,7 @@ Route::middleware('track')->group(function () {
         Route::prefix('wallet')->name('wallet.')->group(function () {
             Route::livewire('/', 'pages::wallet.index')->name('index');
             Route::livewire('/transactions', 'pages::wallet.transactions')->name('transactions');
+            Route::livewire('/gift-cards', 'pages::wallet.gift')->name('gift');
         });
 
         Route::prefix('games')->name('games.')->group(function () {

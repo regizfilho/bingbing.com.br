@@ -265,6 +265,27 @@ new #[Layout('layouts.app')] class extends Component {
             </div>
         </div>
 
+        <a href="{{ route('wallet.gift') }}"
+            class="group bg-[#0b0d11] border border-white/5 p-10 rounded-[2.5rem] flex items-center justify-between transition-all hover:bg-blue-600/[0.02] hover:border-blue-500/30 shadow-xl">
+            <div class="flex items-center gap-6">
+                <div
+                    class="w-16 h-16 bg-white/[0.03] rounded-2xl flex items-center justify-center text-3xl shadow-inner group-hover:scale-110 transition-transform">
+                    🎁
+                </div>
+                <div>
+                    <p class="text-sm font-black text-white uppercase italic leading-none">Gift Cards</p>
+                    <p class="text-[9px] font-bold text-slate-600 uppercase tracking-widest mt-2">Comprar ou Resgatar
+                    </p>
+                </div>
+            </div>
+            <div class="text-slate-700 group-hover:text-blue-500 transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M14 5l7 7m0 0l-7 7m7-7H3">
+                    </path>
+                </svg>
+            </div>
+        </a>
+
         {{-- Seleção de Pacotes --}}
         <div class="mb-16">
             <div class="flex items-center gap-4 mb-12 px-2">

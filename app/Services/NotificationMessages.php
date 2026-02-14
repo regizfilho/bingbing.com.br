@@ -319,6 +319,22 @@ class NotificationMessages
         ];
     }
 
+    public static function giftCardPurchased(string $code, float $value): array
+    {
+        return [
+            'title' => '🎁 Gift Card Criado!',
+            'body' => "Código {$code} de C$ {$value} criado com sucesso!",
+        ];
+    }
+
+    public static function giftCardRedeemed(string $code, float $value): array
+    {
+        return [
+            'title' => '🎉 Gift Card Resgatado!',
+            'body' => "Você ganhou C$ {$value} do código {$code}!",
+        ];
+    }
+
     /**
      * Mensagens de promoção
      */
