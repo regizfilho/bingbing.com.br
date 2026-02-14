@@ -1,42 +1,13 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-
-    <title>{{ config('app.name', 'BingBing') }}</title>
-
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700,800" rel="stylesheet" />
-
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
-    @livewireStyles
-
-    <style>
-        body { 
-            background: #0a0c10; 
-            font-family: 'Inter', sans-serif; 
-            color: #e2e8f0;
-        }
-        
-        .glass-nav { 
-            background: #0f1117;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03); 
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-
-        [x-cloak] { display: none !important; }
-        
-        ::-webkit-scrollbar { width: 3px; height: 3px; }
-        ::-webkit-scrollbar-track { background: #0a0c10; }
-        ::-webkit-scrollbar-thumb { background: #2a2e3a; border-radius: 3px; }
-    </style>
+    @include('layouts.components.head')
 </head>
+
+
 <body class="antialiased bg-[#0a0c10] text-slate-200">
-    
+
     {{-- Navigation --}}
     <nav class="glass-nav">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -62,12 +33,12 @@
 
                 {{-- Right Side --}}
                 <div class="flex items-center gap-3">
-                    <a href="{{ route('games.create') }}" 
+                    <a href="{{ route('games.create') }}"
                         class="hidden sm:flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-all text-sm font-medium">
                         <span class="text-lg leading-none">+</span>
                         <span>Criar partida</span>
                     </a>
-                    
+
                     <x-arena.user-dropdown />
                 </div>
             </div>
@@ -80,7 +51,7 @@
                     <x-arena.nav-item route="wallet.index" label="Carteira" :active="request()->routeIs('wallet.*')" />
                     <x-arena.nav-item route="rankings.index" label="Ranking" :active="request()->routeIs('rankings.*')" />
                 </div>
-                <a href="{{ route('games.create') }}" 
+                <a href="{{ route('games.create') }}"
                     class="flex items-center gap-1 px-3 py-1.5 bg-blue-600 rounded-lg text-sm font-medium whitespace-nowrap ml-2">
                     <span class="text-lg leading-none">+</span>
                     <span class="text-xs">Criar</span>
@@ -110,19 +81,21 @@
     </main>
 
     {{-- Footer --}}
-    
+
     <livewire:footer />
 
     @livewireScripts
-    
+
     <style>
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }
+
         .no-scrollbar {
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
     </style>
 </body>
+
 </html>
