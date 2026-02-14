@@ -1,0 +1,62 @@
+{
+    "id": "bing-bing",
+    "name": "Bing Bing",
+    "short_name": "Finanças",
+    "description": "Jogue bingo online com seus amigos gratuitamente! O Bing Bing é um jogo de bingo multiplayer que permite que você se divirta com seus amigos em tempo real. Com uma interface simples e intuitiva, o Bing Bing é perfeito para todas as idades. Junte-se a uma sala de bingo, compre suas cartelas e comece a jogar! O Bing Bing é o jogo de bingo online mais divertido e fácil de usar. Experimente agora e divirta-se com seus amigos!",
+    "background_color": "#008D52",
+    "dir": "ltr",
+    "display_override": ["fullscreen", "minimal-ui"],
+    "display": "standalone",
+    "orientation": "portrait",
+    "scope": "/",
+    "start_url": "/",
+    "theme_color": "#008D52",
+    "icons": [
+        {
+            "src": "/imgs/ico.svg",
+            "type": "image/x-icon",
+            "sizes": "1024x1024"
+        },
+        {
+            "src": "/imgs/ico.png",
+            "type": "image/png",
+            "sizes": "1024x1024"
+        },
+        {
+            "src": "/imgs/ico.svg",
+            "type": "image/x-icon",
+            "sizes": "1024x1024"
+        }
+    ],
+    "screenshots": [
+        {
+            "src": "/screenshots/1.png",
+            "type": "image/png",
+            "sizes": "852x1528"
+        },
+        {
+            "src": "/screenshots/2.png",
+            "type": "image/png",
+            "sizes": "850x1530"
+        },
+        {
+            "src": "/screenshots/3.png",
+            "type": "image/png",
+            "sizes": "850x1528"
+        },
+        {
+            "src": "/screenshots/4.png",
+            "type": "image/png",
+            "sizes": "844x1386"
+        }
+    ],
+    "categories": ["games", "entertainment"],
+    "lang": "pt-BR",
+    "dir": "ltr",
+    "related_applications": [
+        {
+            "platform": "webapp",
+            "url": "https://bingbing.com.br/manifest.json"
+        }
+    ]
+}

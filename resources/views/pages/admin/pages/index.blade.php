@@ -91,10 +91,7 @@ new #[Layout('layouts.admin')] #[Title('Gerenciamento de Páginas')] class exten
     public function pages()
     {
         return Page::query()
-            ->when($this->search, fn($q) => $q->where(fn($sub) => 
-                $sub->where('title', 'like', "%{$this->search}%")
-                    ->orWhere('slug', 'like', "%{$this->search}%")
-            ))
+            ->when($this->search, fn($q) => $q->where(fn($sub) => $sub->where('title', 'like', "%{$this->search}%")->orWhere('slug', 'like', "%{$this->search}%")))
             ->when($this->filterStatus === 'active', fn($q) => $q->where('is_active', true))
             ->when($this->filterStatus === 'inactive', fn($q) => $q->where('is_active', false))
             ->orderBy('updated_at', $this->sort)
@@ -130,14 +127,14 @@ new #[Layout('layouts.admin')] #[Title('Gerenciamento de Páginas')] class exten
     public function edit(int $id): void
     {
         $page = Page::findOrFail($id);
-        
+
         $this->editingId = $page->id;
         $this->title = $page->title;
         $this->slug = $page->slug;
         $this->content = $page->content;
         $this->meta_description = $page->meta_description ?? '';
         $this->is_active = (bool) $page->is_active;
-        
+
         $this->showDrawer = true;
     }
 
@@ -153,11 +150,11 @@ new #[Layout('layouts.admin')] #[Title('Gerenciamento de Páginas')] class exten
                 'content' => $this->content,
                 'meta_description' => trim($this->meta_description),
                 'is_active' => $this->is_active,
-            ]
+            ],
         );
 
         $this->dispatch('notify', type: 'success', text: $this->editingId ? 'Página atualizada!' : 'Página criada!');
-        
+
         $this->closeModal();
         $this->dispatch('$refresh');
     }
@@ -166,7 +163,7 @@ new #[Layout('layouts.admin')] #[Title('Gerenciamento de Páginas')] class exten
     {
         $page = Page::findOrFail($id);
         $page->update(['is_active' => !$page->is_active]);
-        
+
         $this->dispatch('notify', type: 'success', text: 'Status atualizado!');
         $this->dispatch('$refresh');
     }
@@ -176,7 +173,7 @@ new #[Layout('layouts.admin')] #[Title('Gerenciamento de Páginas')] class exten
         try {
             $page = Page::findOrFail($id);
             $page->delete();
-            
+
             $this->dispatch('notify', type: 'success', text: 'Página removida com sucesso!');
             $this->dispatch('$refresh');
         } catch (\Exception $e) {
@@ -335,8 +332,9 @@ new #[Layout('layouts.admin')] #[Title('Gerenciamento de Páginas')] class exten
                                     </div>
                                     <div>
                                         <div class="text-white font-semibold">{{ $page->title }}</div>
-                                        @if($page->meta_description)
-                                            <div class="text-slate-400 text-xs truncate max-w-md">{{ Str::limit($page->meta_description, 60) }}</div>
+                                        @if ($page->meta_description)
+                                            <div class="text-slate-400 text-xs truncate max-w-md">
+                                                {{ Str::limit($page->meta_description, 60) }}</div>
                                         @endif
                                     </div>
                                 </div>
@@ -347,7 +345,8 @@ new #[Layout('layouts.admin')] #[Title('Gerenciamento de Páginas')] class exten
                                     <a href="/{{ $page->slug }}" target="_blank"
                                         class="p-1 text-slate-400 hover:text-indigo-400 transition-colors"
                                         title="Visualizar página">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor"
+                                            viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                 d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                                         </svg>
@@ -391,7 +390,8 @@ new #[Layout('layouts.admin')] #[Title('Gerenciamento de Páginas')] class exten
                                         d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                 </svg>
                                 <p class="text-slate-400 font-medium mb-2">Nenhuma página encontrada</p>
-                                <p class="text-slate-500 text-sm">Crie sua primeira página clicando no botão "Nova Página"</p>
+                                <p class="text-slate-500 text-sm">Crie sua primeira página clicando no botão "Nova
+                                    Página"</p>
                             </td>
                         </tr>
                     @endforelse

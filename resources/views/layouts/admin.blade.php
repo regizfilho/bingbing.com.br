@@ -1,45 +1,8 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Painel Admin | {{ config('app.name') }}</title>
-
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700,800" rel="stylesheet" />
-
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
-    @livewireStyles
-
-    <style>
-        body {
-            background-color: #05070a;
-            font-family: 'Inter', sans-serif;
-        }
-
-        [x-cloak] {
-            display: none !important;
-        }
-
-        /* Scrollbar Profissional */
-        ::-webkit-scrollbar {
-            width: 5px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: #05070a;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: #1e293b;
-            border-radius: 10px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: #334155;
-        }
-    </style>
+    @include('layouts.components.head')
 </head>
 
 <body class="antialiased text-slate-300">
@@ -73,6 +36,7 @@
                     <div class="space-y-1">
                         <x-admin.sidebar.item route="admin.index" label="Dashboard" icon="home" />
                         <x-admin.sidebar.item route="admin.pages.index" label="Páginas" icon="document-text" />
+                        <x-admin.sidebar.item route="admin.notification.push" label="Notificações" icon="bell" />
                     </div>
                 </div>
 
