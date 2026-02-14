@@ -8,11 +8,20 @@ Route::middleware('track')->group(function () {
 
     Route::view('/', 'leading')->name('home');
 
-    Route::post('/api/push/subscribe', [PushNotificationController::class, 'subscribe']);
-    Route::post('/api/push/unsubscribe', [PushNotificationController::class, 'unsubscribe']);
-    Route::post('/notifications/click/{notification}', [PushNotificationController::class, 'click'])
-        ->middleware('auth')
-        ->name('notifications.click');
+    // Rotas de notificação push REQUEREM autenticação
+    Route::middleware('auth')->group(function () {
+        Route::post('/api/push/subscribe', [PushNotificationController::class, 'subscribe']);
+        Route::post('/api/push/unsubscribe', [PushNotificationController::class, 'unsubscribe']);
+        
+        // Click tracking com rate limiting
+        Route::middleware('throttle:30,1')->group(function () {
+            Route::post('/notifications/click/{notification:uuid}', [PushNotificationController::class, 'click'])
+                ->name('notifications.click');
+                
+            Route::get('/notifications/click/{notification:uuid}', [PushNotificationController::class, 'clickGet'])
+                ->name('notifications.click.get');
+        });
+    });
 
     Route::middleware('guest')->group(function () {
         Route::prefix('auth')->name('auth.')->group(function () {

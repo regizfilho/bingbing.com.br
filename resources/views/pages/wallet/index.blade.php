@@ -106,7 +106,7 @@ new #[Layout('layouts.app')] class extends Component {
                 $discountAmount = $this->discountAmount;
                 $finalAmount = $this->finalPrice;
 
-                // 🔥 CRIA A TRANSAÇÃO MANUALMENTE
+                // Cria a transação
                 $wallet->balance += $this->selectedPackage->credits;
                 $wallet->save();
 
@@ -120,14 +120,12 @@ new #[Layout('layouts.app')] class extends Component {
                     'transactionable_id' => $this->selectedPackage->id,
                     'status' => 'completed',
                     'coupon_id' => $this->appliedCoupon?->id,
-
-                    // 🔥 AGORA SALVANDO OS VALORES FINANCEIROS
                     'original_amount' => $originalAmount,
                     'discount_amount' => $discountAmount,
                     'final_amount' => $finalAmount,
                 ]);
 
-                // 🔥 Registro de uso do cupom
+                // Registro de uso do cupom
                 if ($this->appliedCoupon) {
                     CouponUser::create([
                         'coupon_id' => $this->appliedCoupon->id,
@@ -140,6 +138,20 @@ new #[Layout('layouts.app')] class extends Component {
 
                     $this->appliedCoupon->increment('used_count');
                 }
+
+                // 🎉 ENVIAR NOTIFICAÇÃO PUSH DIVERTIDA
+                $pushService = app(\App\Services\PushNotificationService::class);
+                $message = \App\Services\NotificationMessages::creditPurchase(
+                    $this->selectedPackage->credits,
+                    $this->selectedPackage->name
+                );
+
+                $pushService->notifyUser(
+                    $this->user->id,
+                    $message['title'],
+                    $message['body'],
+                    route('wallet.index')
+                );
             });
 
             $this->dispatch('notify', type: 'success', text: "Recarga realizada! +{$this->selectedPackage->credits} créditos adicionados.");
@@ -161,7 +173,8 @@ new #[Layout('layouts.app')] class extends Component {
 
     {{-- Efeitos de Fundo --}}
     <div class="fixed top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
-        <div class="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-blue-600/10 blur-[120px] rounded-full"></div>
+        <div class="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-blue-600/10 blur-[120px] rounded-full">
+        </div>
         <div class="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-cyan-500/5 blur-[100px] rounded-full">
         </div>
     </div>
@@ -288,8 +301,7 @@ new #[Layout('layouts.app')] class extends Component {
                                 class="flex items-baseline gap-2 mb-10 group-hover:scale-110 transition-transform duration-500">
                                 <span
                                     class="text-6xl font-black text-white italic tracking-tighter">{{ number_format($package->credits, 0, ',', '.') }}</span>
-                                <span
-                                    class="text-blue-600 font-black text-sm italic uppercase tracking-widest">C$</span>
+                                <span class="text-blue-600 font-black text-sm italic uppercase tracking-widest">C$</span>
                             </div>
 
                             <div class="w-full pt-10 border-t border-white/5 flex flex-col items-center">
@@ -364,8 +376,8 @@ new #[Layout('layouts.app')] class extends Component {
     {{-- Janela de Confirmação --}}
     @if ($showConfirmation && $this->selectedPackage)
         <div class="fixed inset-0 z-[100] flex items-center justify-center p-6">
-            <div class="absolute inset-0 bg-[#05070a]/90 backdrop-blur-2xl animate-in fade-in"
-                wire:click="cancelPurchase"></div>
+            <div class="absolute inset-0 bg-[#05070a]/90 backdrop-blur-2xl animate-in fade-in" wire:click="cancelPurchase">
+            </div>
 
             <div
                 class="relative bg-[#0b0d11] w-full max-w-lg rounded-[4rem] border border-blue-600/30 overflow-hidden shadow-[0_0_150px_rgba(37,99,235,0.2)] animate-in zoom-in duration-300">
@@ -414,8 +426,7 @@ new #[Layout('layouts.app')] class extends Component {
                         </button>
 
                         @if ($appliedCoupon)
-                            <div
-                                class="text-center text-[10px] font-black uppercase tracking-widest italic text-emerald-500">
+                            <div class="text-center text-[10px] font-black uppercase tracking-widest italic text-emerald-500">
                                 Cupom {{ $appliedCoupon->code }} aplicado (-R$
                                 {{ number_format($discountAmount, 2, ',', '.') }})
                             </div>

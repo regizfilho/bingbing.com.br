@@ -77,7 +77,7 @@ new class extends Component {
         }
     }
 
-    public function join()
+public function join()
     {
         if ($this->player || !$this->game->canJoin()) {
             return;
@@ -109,6 +109,20 @@ new class extends Component {
                     'is_bingo' => false,
                 ]);
             }
+
+            // 🎮 ENVIAR NOTIFICAÇÃO PUSH DE ENTRADA NA SALA
+            $pushService = app(\App\Services\PushNotificationService::class);
+            $message = \App\Services\NotificationMessages::playerJoinedRoom(
+                $this->game->name,
+                $cardsPerPlayer
+            );
+
+            $pushService->notifyUser(
+                auth()->id(),
+                $message['title'],
+                $message['body'],
+                route('games.display', $this->game->invite_code)
+            );
         });
 
         broadcast(new GameUpdated($this->game))->toOthers();
@@ -150,13 +164,15 @@ new class extends Component {
         $this->syncGameState();
     }
 
-    private function claimPrizeAutomatically(Card $card)
+private function claimPrizeAutomatically(Card $card)
     {
         $nextPrize = $this->game->prizes()->where('is_claimed', false)->orderBy('position', 'asc')->first();
+        
         DB::transaction(function () use ($card, $nextPrize) {
             if ($nextPrize) {
                 $nextPrize->update(['is_claimed' => true, 'winner_card_id' => $card->id, 'claimed_at' => now()]);
             }
+            
             Winner::create([
                 'uuid' => (string) \Illuminate\Support\Str::uuid(),
                 'game_id' => $this->game->id,
@@ -166,6 +182,22 @@ new class extends Component {
                 'round_number' => $this->game->current_round,
                 'won_at' => now(),
             ]);
+
+            // 🏆 ENVIAR NOTIFICAÇÃO PUSH DE VITÓRIA
+            if ($nextPrize) {
+                $pushService = app(\App\Services\PushNotificationService::class);
+                $message = \App\Services\NotificationMessages::bingoWinner(
+                    $this->game->name,
+                    $nextPrize->name
+                );
+
+                $pushService->notifyUser(
+                    $this->player->user_id,
+                    $message['title'],
+                    $message['body'],
+                    route('games.display', $this->game->invite_code)
+                );
+            }
         });
     }
 

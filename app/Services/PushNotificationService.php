@@ -2,208 +2,273 @@
 
 namespace App\Services;
 
-use App\Models\Notification\PushSubscription;
 use App\Models\Notification\PushNotification;
+use App\Models\Notification\PushSubscription;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Minishlink\WebPush\WebPush;
-use Minishlink\WebPush\Subscription as WebPushSubscription;
+use Minishlink\WebPush\Subscription;
 
 class PushNotificationService
 {
-    private WebPush $webPush;
-
-    public function __construct()
-    {
-        $this->webPush = new WebPush([
-            'VAPID' => [
-                'subject' => config('services.vapid.subject'),
-                'publicKey' => config('services.vapid.public_key'),
-                'privateKey' => config('services.vapid.private_key'),
-            ],
-        ]);
-    }
-
-    public function subscribe(int $userId, array $subscriptionData): PushSubscription
-    {
-        $keys = $subscriptionData['keys'] ?? [];
-
-        return PushSubscription::updateOrCreate(
-            [
-                'user_id' => $userId,
-                'endpoint' => $subscriptionData['endpoint'],
-            ],
-            [
-                'public_key' => $keys['p256dh'] ?? '',
-                'auth_token' => $keys['auth'] ?? '',
-                'device_info' => $subscriptionData['device_info'] ?? null,
-                'is_active' => true,
-                'last_used_at' => now(),
-            ]
-        );
-    }
-
-    public function unsubscribe(int $userId, string $endpoint): bool
-    {
-        return PushSubscription::where('user_id', $userId)
-            ->where('endpoint', $endpoint)
-            ->delete() > 0;
-    }
-
-    public function send(PushSubscription $subscription, array $payload): bool
+    public function processNotification(PushNotification $notification): void
     {
         try {
-            $webPushSubscription = WebPushSubscription::create([
-                'endpoint' => $subscription->endpoint,
-                'keys' => [
-                    'p256dh' => $subscription->public_key,
-                    'auth' => $subscription->auth_token,
-                ],
+            Log::info('Iniciando processamento de notificação', [
+                'notification_id' => $notification->id,
+                'target_type' => $notification->target_type,
+                'target_filters' => $notification->target_filters
             ]);
 
-            $this->webPush->queueNotification($webPushSubscription, json_encode($payload));
+            $notification->update(['status' => PushNotification::STATUS_PROCESSING]);
 
-            foreach ($this->webPush->flush() as $report) {
-                if ($report->isSuccess()) {
-                    $subscription->update(['last_used_at' => now()]);
-                    return true;
-                } else {
-                    if ($report->isSubscriptionExpired()) {
-                        $subscription->deactivate();
-                    }
-                    return false;
+            $subscriptions = $this->getTargetSubscriptions($notification);
+
+            Log::info('Subscriptions encontradas', [
+                'notification_id' => $notification->id,
+                'count' => $subscriptions->count()
+            ]);
+
+            if ($subscriptions->isEmpty()) {
+                Log::warning('Nenhuma subscription encontrada', [
+                    'notification_id' => $notification->id
+                ]);
+                
+                $notification->update([
+                    'status' => PushNotification::STATUS_COMPLETED,
+                    'sent_at' => now(),
+                    'total_sent' => 0,
+                    'total_success' => 0,
+                ]);
+                return;
+            }
+
+            $auth = [
+                'VAPID' => [
+                    'subject' => config('app.url'),
+                    'publicKey' => config('services.vapid.public_key'),
+                    'privateKey' => config('services.vapid.private_key'),
+                ]
+            ];
+
+            $webPush = new WebPush($auth);
+            $webPush->setAutomaticPadding(false);
+
+            $payload = json_encode([
+                'title' => $notification->title,
+                'body' => $notification->body,
+                'icon' => $notification->icon,
+                'badge' => $notification->badge,
+                'url' => $notification->url,
+                'data' => array_merge($notification->data ?? [], [
+                    'notification_id' => $notification->uuid, // Usar UUID em vez de ID
+                ]),
+            ]);
+
+            $totalSent = 0;
+            $totalSuccess = 0;
+            $totalFailed = 0;
+
+            foreach ($subscriptions as $sub) {
+                try {
+                    $subscription = Subscription::create([
+                        'endpoint' => $sub->endpoint,
+                        'publicKey' => $sub->public_key,
+                        'authToken' => $sub->auth_token,
+                    ]);
+
+                    $webPush->queueNotification($subscription, $payload);
+                    $totalSent++;
+                    
+                    Log::debug('Notificação adicionada à fila', [
+                        'subscription_id' => $sub->id,
+                        'user_id' => $sub->user_id
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Erro ao adicionar notificação na fila', [
+                        'subscription_id' => $sub->id,
+                        'error' => $e->getMessage()
+                    ]);
+                    $totalFailed++;
                 }
             }
 
-            return false;
+            Log::info('Iniciando flush de notificações', [
+                'notification_id' => $notification->id,
+                'total_queued' => $totalSent
+            ]);
+
+            foreach ($webPush->flush() as $report) {
+                $endpoint = $report->getEndpoint();
+
+                if ($report->isSuccess()) {
+                    $totalSuccess++;
+                    PushSubscription::where('endpoint', $endpoint)
+                        ->update(['last_used_at' => now()]);
+                        
+                    Log::debug('Notificação enviada com sucesso', [
+                        'endpoint' => substr($endpoint, 0, 50) . '...'
+                    ]);
+                } else {
+                    $totalFailed++;
+                    
+                    if ($report->isSubscriptionExpired()) {
+                        PushSubscription::where('endpoint', $endpoint)
+                            ->update(['is_active' => false]);
+                        
+                        Log::warning('Subscription expirada', [
+                            'endpoint' => substr($endpoint, 0, 50) . '...'
+                        ]);
+                    }
+
+                    Log::error('Falha ao enviar notificação', [
+                        'endpoint' => substr($endpoint, 0, 50) . '...',
+                        'reason' => $report->getReason(),
+                        'expired' => $report->isSubscriptionExpired()
+                    ]);
+                }
+            }
+
+            Log::info('Processamento concluído', [
+                'notification_id' => $notification->id,
+                'total_sent' => $totalSent,
+                'total_success' => $totalSuccess,
+                'total_failed' => $totalFailed
+            ]);
+
+            $notification->update([
+                'status' => PushNotification::STATUS_COMPLETED,
+                'sent_at' => now(),
+                'total_sent' => $totalSent,
+                'total_success' => $totalSuccess,
+                'total_failed' => $totalFailed,
+            ]);
+
         } catch (\Exception $e) {
-            \Log::error('Push notification send error: ' . $e->getMessage());
-            return false;
+            Log::error('Erro ao processar notificação', [
+                'notification_id' => $notification->id,
+                'error' => $e->getMessage()
+            ]);
+
+            $notification->update(['status' => PushNotification::STATUS_FAILED]);
         }
     }
 
-    public function sendToUser(int $userId, array $payload): int
+    private function getTargetSubscriptions(PushNotification $notification)
+    {
+        $query = PushSubscription::where('is_active', true)
+            ->select(['id', 'user_id', 'endpoint', 'public_key', 'auth_token']); // Selecionar apenas campos necessários
+
+        if ($notification->target_type === PushNotification::TARGET_USER) {
+            $userIds = $notification->target_filters['user_ids'] ?? [];
+            
+            if (empty($userIds)) {
+                Log::warning('Notificação de usuário sem IDs especificados', [
+                    'notification_id' => $notification->id
+                ]);
+                return collect();
+            }
+            
+            $query->whereIn('user_id', $userIds);
+            
+            Log::info('Buscando subscriptions para usuários específicos', [
+                'notification_id' => $notification->id,
+                'user_ids' => $userIds
+            ]);
+        } else {
+            Log::info('Buscando todas as subscriptions ativas (broadcast)', [
+                'notification_id' => $notification->id
+            ]);
+        }
+
+        // Usar chunk para processar em lotes se houver muitas subscriptions
+        $subscriptions = $query->get();
+        
+        Log::info('Subscriptions retornadas', [
+            'notification_id' => $notification->id,
+            'count' => $subscriptions->count(),
+            'user_ids' => $subscriptions->pluck('user_id')->unique()->toArray()
+        ]);
+
+        return $subscriptions;
+    }
+
+    public function notifyUser(int $userId, string $title, string $body, ?string $url = null): int
     {
         $subscriptions = PushSubscription::where('user_id', $userId)
             ->where('is_active', true)
             ->get();
 
-        $successCount = 0;
-
-        foreach ($subscriptions as $subscription) {
-            if ($this->send($subscription, $payload)) {
-                $successCount++;
-            }
+        if ($subscriptions->isEmpty()) {
+            return 0;
         }
 
-        return $successCount;
-    }
-
-    public function sendToAll(array $payload): int
-    {
-        $subscriptions = PushSubscription::where('is_active', true)->get();
-
-        $successCount = 0;
-
-        foreach ($subscriptions as $subscription) {
-            if ($this->send($subscription, $payload)) {
-                $successCount++;
-            }
-        }
-
-        return $successCount;
-    }
-
-    public function processNotification(PushNotification $notification): void
-    {
-        $notification->update(['status' => PushNotification::STATUS_PROCESSING]);
-
-        $payload = [
-            'title' => $notification->title,
-            'body' => $notification->body,
-            'icon' => $notification->icon ?? '/imgs/ico.png',
-            'badge' => $notification->badge ?? '/imgs/ico.png',
-            'data' => array_merge($notification->data ?? [], [
-                'url' => $notification->url ?? '/',
-                'notification_id' => $notification->id,
-            ]),
+        $auth = [
+            'VAPID' => [
+                'subject' => config('app.url'),
+                'publicKey' => config('services.vapid.public_key'),
+                'privateKey' => config('services.vapid.private_key'),
+            ]
         ];
 
-        $successCount = match ($notification->target_type) {
-            PushNotification::TARGET_ALL => $this->sendToAll($payload),
-            PushNotification::TARGET_USER => $this->sendToUsers($notification->target_filters['user_ids'] ?? [], $payload),
-            default => 0,
-        };
+        $webPush = new WebPush($auth);
+        $webPush->setAutomaticPadding(false);
 
-        $notification->update([
-            'total_sent' => $successCount,
-            'total_success' => $successCount,
-            'sent_at' => now(),
-            'status' => $successCount > 0 ? PushNotification::STATUS_COMPLETED : PushNotification::STATUS_FAILED,
+        $payload = json_encode([
+            'title' => $title,
+            'body' => $body,
+            'icon' => '/imgs/ico.png',
+            'badge' => '/imgs/ico.png',
+            'url' => $url,
         ]);
-    }
 
-    private function sendToUsers(array $userIds, array $payload): int
-    {
-        $subscriptions = PushSubscription::whereIn('user_id', $userIds)
-            ->where('is_active', true)
-            ->get();
+        $count = 0;
 
-        $successCount = 0;
+        foreach ($subscriptions as $sub) {
+            try {
+                $subscription = Subscription::create([
+                    'endpoint' => $sub->endpoint,
+                    'publicKey' => $sub->public_key,
+                    'authToken' => $sub->auth_token,
+                ]);
 
-        foreach ($subscriptions as $subscription) {
-            if ($this->send($subscription, $payload)) {
-                $successCount++;
+                $webPush->queueNotification($subscription, $payload);
+                $count++;
+            } catch (\Exception $e) {
+                Log::error('Erro ao enviar notificação direta', [
+                    'user_id' => $userId,
+                    'error' => $e->getMessage()
+                ]);
             }
         }
 
-        return $successCount;
-    }
+        foreach ($webPush->flush() as $report) {
+            if ($report->isSubscriptionExpired()) {
+                PushSubscription::where('endpoint', $report->getEndpoint())
+                    ->update(['is_active' => false]);
+            }
+        }
 
-    public function notifyUser(int $userId, string $title, string $body, ?string $url = null, array $data = []): int
-    {
-        $payload = [
-            'title' => $title,
-            'body' => $body,
-            'icon' => '/imgs/ico.png',
-            'badge' => '/imgs/ico.png',
-            'data' => array_merge($data, [
-                'url' => $url ?? '/',
-            ]),
-        ];
-
-        return $this->sendToUser($userId, $payload);
-    }
-
-    public function broadcast(string $title, string $body, ?string $url = null, array $data = []): int
-    {
-        $payload = [
-            'title' => $title,
-            'body' => $body,
-            'icon' => '/imgs/ico.png',
-            'badge' => '/imgs/ico.png',
-            'data' => array_merge($data, [
-                'url' => $url ?? '/',
-            ]),
-        ];
-
-        return $this->sendToAll($payload);
+        return $count;
     }
 
     public function getSubscriptionStats(): array
     {
         return [
-            'total_subscriptions' => PushSubscription::count(),
+            'total_users_subscribed' => PushSubscription::where('is_active', true)
+                ->distinct('user_id')
+                ->count('user_id'),
             'active_subscriptions' => PushSubscription::where('is_active', true)->count(),
-            'inactive_subscriptions' => PushSubscription::where('is_active', false)->count(),
-            'total_users_subscribed' => PushSubscription::where('is_active', true)->distinct('user_id')->count('user_id'),
+            'total_subscriptions' => PushSubscription::count(),
         ];
     }
 
     public function getNotificationStats(): array
     {
         return [
-            'total_sent' => PushNotification::where('status', PushNotification::STATUS_COMPLETED)->sum('total_sent'),
-            'total_success' => PushNotification::where('status', PushNotification::STATUS_COMPLETED)->sum('total_success'),
-            'total_failed' => PushNotification::where('status', PushNotification::STATUS_FAILED)->count(),
+            'total_sent' => PushNotification::sum('total_sent'),
+            'total_success' => PushNotification::sum('total_success'),
+            'total_failed' => PushNotification::sum('total_failed'),
             'pending_notifications' => PushNotification::where('status', PushNotification::STATUS_PENDING)->count(),
         ];
     }

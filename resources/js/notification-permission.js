@@ -25,19 +25,37 @@ export function requestNotificationPermission() {
             });
         })
         .then(subscription => {
+            const subscriptionJson = subscription.toJSON();
+            
             return fetch('/api/push/subscribe', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                    'Accept': 'application/json'
                 },
                 body: JSON.stringify({
-                    subscription: subscription.toJSON(),
+                    endpoint: subscriptionJson.endpoint,
+                    keys: {
+                        p256dh: subscriptionJson.keys.p256dh,
+                        auth: subscriptionJson.keys.auth
+                    },
                     device_info: navigator.userAgent
                 })
             });
         })
-        .then(response => response.json());
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.message || 'Erro desconhecido');
+            }
+            return data;
+        });
 }
 
 function urlBase64ToUint8Array(base64String) {

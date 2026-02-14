@@ -1,109 +1,99 @@
-const CACHE_NAME = 'controle-financeiro-v1';
-const URLS_TO_CACHE = [
-  '/',
-  '/manifest.json',
-];
-
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(URLS_TO_CACHE))
-      .then(() => self.skipWaiting())
-  );
+self.addEventListener('install', function(event) {
+    console.log('Service Worker instalado');
+    self.skipWaiting();
 });
 
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
+self.addEventListener('activate', function(event) {
+    console.log('Service Worker ativado');
+    event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('push', function(event) {
+    console.log('Push recebido:', event);
+    
+    if (!event.data) {
+        console.log('Push sem dados');
+        return;
+    }
+
+    try {
+        const data = event.data.json();
+        console.log('Dados da notificação:', data);
+
+        const options = {
+            body: data.body,
+            icon: data.icon || '/imgs/ico.png',
+            badge: data.badge || '/imgs/ico.png',
+            data: {
+                url: data.url,
+                notification_id: data.data?.notification_id
+            },
+            requireInteraction: false,
+            tag: 'notification-' + (data.data?.notification_id || Date.now())
+        };
+
+        event.waitUntil(
+            self.registration.showNotification(data.title, options)
+        );
+    } catch (error) {
+        console.error('Erro ao processar push:', error);
+    }
+});
+
+self.addEventListener('notificationclick', function(event) {
+    console.log('=== NOTIFICAÇÃO CLICADA ===');
+    console.log('Event:', event);
+    console.log('Notification data:', event.notification.data);
+    
+    event.notification.close();
+
+    const notificationData = event.notification.data;
+    let url = notificationData?.url || '/';
+    const notificationId = notificationData?.notification_id;
+
+    // Garantir que a URL é absoluta
+    if (!url.startsWith('http')) {
+        url = self.location.origin + (url.startsWith('/') ? url : '/' + url);
+    }
+
+    console.log('URL de destino:', url);
+    console.log('Notification ID:', notificationId);
+
+    // Salvar click pendente para ser processado pela página (apenas UMA vez)
+    if (notificationId) {
+        console.log('Salvando click pendente no cache');
+        
+        event.waitUntil(
+            caches.open('notification-clicks-v1').then(function(cache) {
+                const timestamp = Date.now();
+                const clickData = {
+                    notificationId: notificationId,
+                    timestamp: timestamp
+                };
+                
+                const clickUrl = `/click-pending/${notificationId}-${timestamp}`;
+                
+                return cache.put(
+                    clickUrl,
+                    new Response(JSON.stringify(clickData), {
+                        headers: { 'Content-Type': 'application/json' }
+                    })
+                );
+            }).then(function() {
+                console.log('Click salvo no cache');
+            }).catch(function(error) {
+                console.error('Erro ao salvar click:', error);
+            })
+        );
+    }
+
+    // Sempre abrir em NOVA ABA
+    event.waitUntil(
+        clients.openWindow(url).then(function(client) {
+            console.log('Nova aba aberta:', client ? 'Sucesso' : 'Falhou');
+            return client;
+        }).catch(function(error) {
+            console.error('Erro ao abrir nova aba:', error);
         })
-      );
-    }).then(() => self.clients.claim())
-  );
-});
-
-self.addEventListener('fetch', event => {
-  const { request } = event;
-  const url = new URL(request.url);
-
-  if (request.method !== 'GET') {
-    return;
-  }
-
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return;
-  }
-
-  if (url.pathname.includes('@vite')) {
-    return;
-  }
-
-  event.respondWith(
-    fetch(request)
-      .then(response => {
-        if (!response || response.status !== 200) {
-          return response;
-        }
-
-        const responseToCache = response.clone();
-
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(request, responseToCache);
-        });
-
-        return response;
-      })
-      .catch(() => {
-        return caches.match(request)
-          .then(cachedResponse => {
-            return cachedResponse || new Response('Offline - O recurso não foi encontrado no cache', { status: 404 });
-          });
-      })
-  );
-});
-
-self.addEventListener('push', event => {
-  if (!event.data) {
-    return;
-  }
-
-  const data = event.data.json();
-  
-  const options = {
-    body: data.body || '',
-    icon: data.icon || '/imgs/ico.png',
-    badge: data.badge || '/imgs/ico.png',
-    vibrate: [200, 100, 200],
-    data: data.data || {},
-    actions: data.actions || [],
-    requireInteraction: false,
-  };
-
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'Notificação', options)
-  );
-});
-
-self.addEventListener('notificationclick', event => {
-  event.notification.close();
-
-  const urlToOpen = event.notification.data?.url || '/';
-
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then(windowClients => {
-        for (let client of windowClients) {
-          if (client.url === urlToOpen && 'focus' in client) {
-            return client.focus();
-          }
-        }
-        if (clients.openWindow) {
-          return clients.openWindow(urlToOpen);
-        }
-      })
-  );
+    );
 });

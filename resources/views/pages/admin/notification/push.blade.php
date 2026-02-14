@@ -46,17 +46,26 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Notificações Push')] class 
     public array $selectedUserIds = [];
     public ?int $selectedNotificationId = null;
 
+    // Nova propriedade para busca de usuários
+    public string $userSearch = '';
+
     protected function rules(): array
     {
-        return [
+        $rules = [
             'title' => ['required', 'string', 'max:100'],
             'body' => ['required', 'string', 'max:300'],
             'url' => ['nullable', 'url', 'max:500'],
             'icon' => ['nullable', 'string', 'max:500'],
             'targetType' => ['required', 'in:all,user'],
-            'selectedUserIds' => ['required_if:targetType,user', 'array', 'min:1'],
-            'selectedUserIds.*' => ['exists:users,id'],
         ];
+
+        // Só valida selectedUserIds se targetType for 'user'
+        if ($this->targetType === 'user') {
+            $rules['selectedUserIds'] = ['required', 'array', 'min:1'];
+            $rules['selectedUserIds.*'] = ['exists:users,id'];
+        }
+
+        return $rules;
     }
 
     protected function messages(): array
@@ -116,7 +125,17 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Notificações Push')] class 
     #[Computed]
     public function users()
     {
-        return User::query()->select('id', 'name', 'email')->orderBy('name')->get();
+        return User::query()
+            ->select('id', 'name', 'email')
+            ->when($this->userSearch, fn($q) => 
+                $q->where(fn($sub) => 
+                    $sub->where('name', 'like', "%{$this->userSearch}%")
+                       ->orWhere('email', 'like', "%{$this->userSearch}%")
+                )
+            )
+            ->orderBy('name')
+            ->limit(50)
+            ->get();
     }
 
     #[Computed]
@@ -149,7 +168,7 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Notificações Push')] class 
 
     public function openDrawer(): void
     {
-        $this->reset(['title', 'body', 'url', 'selectedUserIds']);
+        $this->reset(['title', 'body', 'url', 'selectedUserIds', 'userSearch']);
         $this->icon = '/imgs/ico.png';
         $this->targetType = 'all';
         $this->resetValidation();
@@ -159,7 +178,7 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Notificações Push')] class 
     public function closeDrawer(): void
     {
         $this->showDrawer = false;
-        $this->reset(['title', 'body', 'url', 'selectedUserIds']);
+        $this->reset(['title', 'body', 'url', 'selectedUserIds', 'userSearch']);
         $this->icon = '/imgs/ico.png';
         $this->targetType = 'all';
         $this->resetValidation();
@@ -170,12 +189,22 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Notificações Push')] class 
         try {
             $this->validate();
 
-            Log::info('Validação passou', [
+            // Sanitizar inputs
+            $this->title = strip_tags($this->title);
+            $this->body = strip_tags($this->body);
+            
+            // Validar URL se fornecida
+            if ($this->url && !filter_var($this->url, FILTER_VALIDATE_URL)) {
+                $this->addError('url', 'URL inválida');
+                return;
+            }
+
+            Log::info('Iniciando criação de notificação', [
                 'targetType' => $this->targetType,
                 'selectedUserIds' => $this->selectedUserIds,
             ]);
 
-            DB::transaction(function () {
+            $notification = DB::transaction(function () {
                 $targetFilters = $this->targetType === 'user' ? ['user_ids' => $this->selectedUserIds] : null;
 
                 $notification = PushNotification::create([
@@ -191,24 +220,49 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Notificações Push')] class 
                     'status' => PushNotification::STATUS_PENDING,
                 ]);
 
-                Log::info('Notificação criada', [
+                Log::info('Notificação criada no banco', [
                     'id' => $notification->id,
                     'target_type' => $notification->target_type,
                     'target_filters' => $notification->target_filters,
                 ]);
 
+                return $notification;
+            });
+
+            // Processar via Job se houver muitas subscriptions, senão inline
+            $subscriptionsCount = PushSubscription::where('is_active', true)
+                ->when($this->targetType === 'user', fn($q) => $q->whereIn('user_id', $this->selectedUserIds))
+                ->count();
+
+            if ($subscriptionsCount > 50) {
+                // Usar Job para processar em background
+                dispatch(function () use ($notification) {
+                    $service = app(PushNotificationService::class);
+                    $service->processNotification($notification);
+                })->afterResponse();
+                
+                Log::info('Notificação enviada para processamento em background', [
+                    'id' => $notification->id,
+                    'subscriptions_count' => $subscriptionsCount
+                ]);
+            } else {
+                // Processar imediatamente
                 $service = app(PushNotificationService::class);
                 $service->processNotification($notification);
-
-                Log::info('Notificação processada', ['id' => $notification->id]);
-            });
+                
+                Log::info('Notificação processada imediatamente', [
+                    'id' => $notification->id,
+                    'subscriptions_count' => $subscriptionsCount
+                ]);
+            }
 
             $this->dispatch('notify', type: 'success', text: 'Notificação enviada com sucesso!');
             $this->closeDrawer();
+            
         } catch (\Illuminate\Validation\ValidationException $e) {
             Log::error('Erro de validação', ['errors' => $e->errors()]);
-
             throw $e;
+            
         } catch (\Exception $e) {
             Log::error('Erro ao criar notificação', [
                 'message' => $e->getMessage(),
@@ -245,7 +299,6 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Notificações Push')] class 
     {
         try {
             $notification = PushNotification::findOrFail($id);
-            $service = app(PushNotificationService::class);
 
             $newNotification = PushNotification::create([
                 'uuid' => Str::uuid(),
@@ -260,13 +313,36 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Notificações Push')] class 
                 'status' => PushNotification::STATUS_PENDING,
             ]);
 
-            $service->processNotification($newNotification);
+            dispatch(function () use ($newNotification) {
+                $service = app(PushNotificationService::class);
+                $service->processNotification($newNotification);
+            })->afterResponse();
 
             $this->dispatch('notify', type: 'success', text: 'Notificação reenviada!');
+            
         } catch (\Exception $e) {
             Log::error('Erro ao reenviar', ['error' => $e->getMessage()]);
             $this->dispatch('notify', type: 'error', text: 'Erro ao reenviar: ' . $e->getMessage());
         }
+    }
+
+    public function toggleUser(int $userId): void
+    {
+        if (in_array($userId, $this->selectedUserIds)) {
+            $this->selectedUserIds = array_values(array_diff($this->selectedUserIds, [$userId]));
+        } else {
+            $this->selectedUserIds[] = $userId;
+        }
+    }
+
+    public function selectAllUsers(): void
+    {
+        $this->selectedUserIds = $this->users->pluck('id')->toArray();
+    }
+
+    public function clearAllUsers(): void
+    {
+        $this->selectedUserIds = [];
     }
 };
 ?>
@@ -554,15 +630,57 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Notificações Push')] class 
 
                 @if ($targetType === 'user')
                     <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Selecionar Usuários *</label>
-                        <select wire:model="selectedUserIds" multiple size="5"
-                            class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            @foreach ($this->users as $user)
-                                <option value="{{ $user->id }}">{{ $user->name }} ({{ $user->email }})
-                                </option>
-                            @endforeach
-                        </select>
-                        <p class="text-xs text-slate-500 mt-1">Segure Ctrl/Cmd para selecionar múltiplos</p>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">
+                            Selecionar Usuários * 
+                            <span class="text-indigo-400 text-xs">({{ count($selectedUserIds) }} selecionado(s))</span>
+                        </label>
+                        
+                        <div class="mb-3 relative">
+                            <input wire:model.live.debounce.300ms="userSearch" type="text"
+                                class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-2 text-sm text-white pl-10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                placeholder="Buscar por nome ou email...">
+                            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none"
+                                stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+
+                        <div class="flex gap-2 mb-2">
+                            <button type="button" wire:click="selectAllUsers"
+                                class="px-3 py-1 bg-indigo-600/20 text-indigo-400 text-xs rounded-lg hover:bg-indigo-600/30 transition">
+                                Selecionar Todos
+                            </button>
+                            <button type="button" wire:click="clearAllUsers"
+                                class="px-3 py-1 bg-red-600/20 text-red-400 text-xs rounded-lg hover:bg-red-600/30 transition">
+                                Limpar Seleção
+                            </button>
+                        </div>
+
+                        <div class="bg-[#111827] border border-white/10 rounded-xl max-h-64 overflow-y-auto custom-scrollbar">
+                            @forelse ($this->users as $user)
+                                <label 
+                                    class="flex items-center gap-3 p-3 hover:bg-white/5 cursor-pointer transition border-b border-white/5 last:border-0">
+                                    <input type="checkbox" 
+                                        wire:click="toggleUser({{ $user->id }})"
+                                        {{ in_array($user->id, $selectedUserIds) ? 'checked' : '' }}
+                                        class="w-4 h-4 bg-[#111827] border-white/20 rounded text-indigo-600 focus:ring-2 focus:ring-indigo-500">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-white text-sm font-medium truncate">{{ $user->name }}</div>
+                                        <div class="text-slate-400 text-xs truncate">{{ $user->email }}</div>
+                                    </div>
+                                </label>
+                            @empty
+                                <div class="p-6 text-center text-slate-400 text-sm">
+                                    @if($userSearch)
+                                        Nenhum usuário encontrado para "{{ $userSearch }}"
+                                    @else
+                                        Nenhum usuário disponível
+                                    @endif
+                                </div>
+                            @endforelse
+                        </div>
+                        
                         @error('selectedUserIds')
                             <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
                         @enderror

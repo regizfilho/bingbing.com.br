@@ -131,12 +131,12 @@ new #[Layout('layouts.app')] class extends Component {
         }
     }
 
-    public function create(): void
+public function create(): void
     {
         try {
             $this->validate();
             
-            DB::transaction(function () {
+            $game = DB::transaction(function () {
                 $game = Game::create([
                     'creator_id' => $this->user->id,
                     'game_package_id' => $this->game_package_id,
@@ -169,8 +169,24 @@ new #[Layout('layouts.app')] class extends Component {
                     $this->user->wallet->debit($this->selectedPackage->cost_credits, "Arena: {$this->name}", $game);
                 }
 
-                return redirect()->route('games.edit', $game->uuid);
+                // 🎮 ENVIAR NOTIFICAÇÃO PUSH
+                $pushService = app(\App\Services\PushNotificationService::class);
+                $message = \App\Services\NotificationMessages::gameRoomCreated(
+                    $this->name,
+                    $game->invite_code
+                );
+
+                $pushService->notifyUser(
+                    $this->user->id,
+                    $message['title'],
+                    $message['body'],
+                    route('games.edit', $game->uuid)
+                );
+
+                return $game;
             });
+
+            return redirect()->route('games.edit', $game->uuid);
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao criar: ' . $e->getMessage());
         }

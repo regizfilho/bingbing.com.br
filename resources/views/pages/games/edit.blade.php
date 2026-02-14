@@ -144,7 +144,7 @@ new class extends Component {
         }
     }
 
-    public function publish(): void
+public function publish(): void
     {
         if (!$this->validateAndFilterPrizes()) return;
 
@@ -161,11 +161,28 @@ new class extends Component {
                     'auto_claim_prizes' => $this->auto_claim_prizes,
                     'status' => 'waiting',
                 ]);
+                
                 $this->syncPrizes();
+                
                 if ($this->game->players()->count() > 0 && $this->game->status === 'waiting') {
                     $this->game->generateCardsForCurrentRound();
                 }
+
+                // 🎮 ENVIAR NOTIFICAÇÃO PUSH DE SALA ABERTA
+                $pushService = app(\App\Services\PushNotificationService::class);
+                $message = \App\Services\NotificationMessages::gameRoomOpened(
+                    $this->name,
+                    $this->game->invite_code
+                );
+
+                $pushService->notifyUser(
+                    $this->user->id,
+                    $message['title'],
+                    $message['body'],
+                    route('games.play', $this->game->uuid)
+                );
             });
+            
             $this->dispatch('notify', type: 'success', text: 'Sala aberta com sucesso!');
             $this->redirect(route('games.play', $this->game->uuid));
         } catch (\Exception $e) {

@@ -42,7 +42,7 @@ new class extends Component
                                 Status: <span class="text-indigo-500">Notificações Desativadas</span>
                             </h4>
                             <p class="text-[10px] text-slate-400 font-bold uppercase tracking-tighter mt-1">
-                                Ative para receber atualizações importantes sobre compras, créditos e promoções.
+                                Ative para receber atualizações importantes sobre seus jogos, competições e ranking.
                             </p>
                         </div>
                     </div>
@@ -55,8 +55,7 @@ new class extends Component
                                 this.loading = true;
                                 try {
                                     if (typeof requestNotificationPermission === 'undefined') {
-                                        alert('Função não encontrada. Recarregue a página.');
-                                        return;
+                                        throw new Error('Função não encontrada. Recarregue a página.');
                                     }
                                     await requestNotificationPermission();
                                     @this.$refresh();
