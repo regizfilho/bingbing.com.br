@@ -5,8 +5,9 @@ use Livewire\Component;
 use App\Models\Game\{Game, Player, Card, Winner};
 use App\Events\GameUpdated;
 use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\Layout;
 
-new class extends Component {
+new #[Layout('layouts.player')] class extends Component {
     public Game $game;
     public ?Player $player = null;
     public array $cards = [];
@@ -14,28 +15,47 @@ new class extends Component {
     public int $totalDraws = 0;
     public bool $isJoining = false;
 
+    public bool $audioEnabled = false;
+    public bool $showAudioSettings = false;
+
+    public int $cachedDrawCount = 0;
+    public int $cachedWinnerCount = 0;
+
     public function mount(string $invite_code)
     {
         $this->game = Game::where('invite_code', $invite_code)
-            ->with(['creator', 'package', 'prizes.winner.user', 'winners.user', 'winners.prize', 'players.user'])
+            ->with(['creator', 'package', 'prizes.winner.user', 'winners.user', 'winners.prize', 'players.user', 'audioSettings.audio'])
             ->firstOrFail();
 
         if (!isset($this->game->cards_per_player) || $this->game->cards_per_player === null) {
             $this->game->cards_per_player = 1;
         }
 
+        $this->audioEnabled = request()->cookie('player_audio_enabled', 'false') === 'true';
+
         $this->player = Player::where('game_id', $this->game->id)
             ->where('user_id', auth()->id())
             ->first();
 
         $this->syncGameState();
+
+        $this->cachedDrawCount = count($this->drawnNumbers);
+        $this->cachedWinnerCount = Winner::where('game_id', $this->game->id)
+            ->where('round_number', $this->game->current_round)
+            ->count();
+
+        $this->dispatch('clear-audio-cache');
+        $this->dispatch('audio-toggle', enabled: $this->audioEnabled);
     }
 
     #[On('echo:game.{game.uuid},.GameUpdated')]
     public function handleUpdate(): void
     {
+        $oldDrawCount = $this->cachedDrawCount;
+        $oldWinnerCount = $this->cachedWinnerCount;
+
         $this->game->refresh();
-        $this->game->load(['prizes.winner.user', 'draws', 'winners.user', 'winners.prize', 'players.user']);
+        $this->game->load(['prizes.winner.user', 'draws', 'winners.user', 'winners.prize', 'players.user', 'audioSettings.audio']);
         
         if (!$this->player) {
             $this->player = Player::where('game_id', $this->game->id)
@@ -44,6 +64,37 @@ new class extends Component {
         }
 
         $this->syncGameState();
+
+        $newDrawCount = count($this->drawnNumbers);
+        $newWinnerCount = Winner::where('game_id', $this->game->id)
+            ->where('round_number', $this->game->current_round)
+            ->count();
+
+        if ($newDrawCount > $oldDrawCount) {
+            $this->dispatchAudioEvent('number');
+        }
+
+        if ($newWinnerCount > $oldWinnerCount) {
+            $this->dispatchAudioEvent('winner');
+        }
+
+        $this->cachedDrawCount = $newDrawCount;
+        $this->cachedWinnerCount = $newWinnerCount;
+
+        $this->dispatch('clear-audio-cache');
+    }
+
+    private function dispatchAudioEvent(string $category): void
+    {
+        $audioSetting = $this->game->audioSettings()->where('audio_category', $category)->where('is_enabled', true)->first();
+
+        if (!$audioSetting || !$audioSetting->audio) {
+            return;
+        }
+
+        $audio = $audioSetting->audio;
+
+        $this->dispatch('play-sound', type: $category, audioId: $audio->id, name: $audio->name, audioType: $audio->audio_type, filePath: $audio->file_path, ttsText: $audio->tts_text, ttsVoice: $audio->tts_voice, ttsLanguage: $audio->tts_language, ttsRate: $audio->tts_rate, ttsPitch: $audio->tts_pitch, ttsVolume: $audio->tts_volume);
     }
 
     private function syncGameState(): void
@@ -76,6 +127,18 @@ new class extends Component {
                 ];
             })->toArray();
         }
+    }
+
+    public function toggleAudio(): void 
+    { 
+        $this->audioEnabled = !$this->audioEnabled;
+        cookie()->queue('player_audio_enabled', $this->audioEnabled ? 'true' : 'false', 1440);
+        $this->dispatch('audio-toggle', enabled: $this->audioEnabled);
+    }
+
+    public function toggleAudioSettings(): void 
+    { 
+        $this->showAudioSettings = !$this->showAudioSettings; 
     }
 
     public function join(): void
@@ -330,14 +393,96 @@ new class extends Component {
 };
 ?>
 
-<div class="min-h-screen bg-[#05070a] text-slate-200 pb-20">
+<div class="min-h-screen bg-[#05070a] text-slate-200 pb-20 ">
     <x-loading target="join, markNumber" message="Processando..." />
     <x-toast />
 
-    <div class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+    <script>
+        window.isControlPanel = false;
+        window.isPublicDisplay = false;
+    </script>
+
+    {{-- Controles de Áudio Flutuantes --}}
+    <div class="fixed top-15 right-4 z-50 flex items-center gap-3 ">
+        <button wire:click="toggleAudio" 
+            class="relative w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-xl border-2 shadow-2xl transition-all duration-300 hover:scale-110
+            {{ $audioEnabled ? 'bg-blue-600/90 border-blue-500 text-white' : 'bg-slate-900/90 border-slate-700 text-slate-500' }}">
+            @if($audioEnabled)
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+            @else
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/></svg>
+            @endif
+            @if(!$audioEnabled)
+                <div class="absolute -bottom-1 -right-1 w-4 h-4 bg-red-500 border-2 border-slate-950 rounded-full"></div>
+            @endif
+        </button>
+
+        <button wire:click="toggleAudioSettings" 
+            class="w-12 h-12 rounded-full flex items-center justify-center backdrop-blur-xl border-2 shadow-2xl transition-all duration-300 hover:scale-110 bg-slate-900/90 border-slate-700 text-slate-400">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        </button>
+    </div>
+
+    {{-- Modal de Configurações de Áudio --}}
+    @if ($showAudioSettings)
+        <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md animate-fade-in" wire:click="toggleAudioSettings">
+            <div class="bg-slate-900 border-2 border-slate-700 rounded-3xl p-8 max-w-md w-full mx-4 shadow-2xl" wire:click.stop>
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-2xl font-bold uppercase tracking-tight text-white">Configurações</h3>
+                    <button wire:click="toggleAudioSettings" class="text-slate-400 hover:text-slate-200 transition-colors">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="bg-slate-800 rounded-2xl p-4 flex items-center justify-between">
+                        <span class="text-sm font-bold uppercase tracking-wider">Som Ativado</span>
+                        <button wire:click="toggleAudio" class="relative w-14 h-7 rounded-full transition-colors {{ $audioEnabled ? 'bg-blue-600' : 'bg-slate-600' }}">
+                            <div class="absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform {{ $audioEnabled ? 'translate-x-7' : '' }} shadow-lg"></div>
+                        </button>
+                    </div>
+
+                    @if(!$audioEnabled)
+                        <div class="p-4 bg-amber-500/10 border-2 border-amber-500/30 rounded-2xl">
+                            <p class="text-sm font-bold text-amber-400 mb-1">💡 Áudio Desativado</p>
+                            <p class="text-xs text-slate-400">Clique no botão acima para ativar o som.</p>
+                        </div>
+                    @endif
+
+                    @if ($this->game->package->is_free)
+                        <div class="p-4 bg-orange-500/10 border-2 border-orange-500/30 rounded-2xl">
+                            <p class="text-sm font-bold text-orange-400 mb-1">Plano Gratuito</p>
+                            <p class="text-xs text-slate-400">Áudio personalizado disponível apenas em planos pagos.</p>
+                        </div>
+                    @else
+                        <div class="space-y-3">
+                            @php
+                                $numberSetting = $this->game->audioSettings()->where('audio_category', 'number')->first();
+                                $winnerSetting = $this->game->audioSettings()->where('audio_category', 'winner')->first();
+                            @endphp
+                            @if ($numberSetting && $numberSetting->audio)
+                                <div class="bg-slate-800 rounded-2xl p-4">
+                                    <p class="text-xs font-bold text-slate-500 mb-1 uppercase">Som de Sorteio</p>
+                                    <p class="text-sm font-semibold">{{ $numberSetting->audio->name }}</p>
+                                </div>
+                            @endif
+                            @if ($winnerSetting && $winnerSetting->audio)
+                                <div class="bg-slate-800 rounded-2xl p-4">
+                                    <p class="text-xs font-bold text-slate-500 mb-1 uppercase">Som de Vencedor</p>
+                                    <p class="text-sm font-semibold">{{ $winnerSetting->audio->name }}</p>
+                                </div>
+                            @endif
+                        </div>
+                    @endif
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <div class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8 mt-3">
         
         {{-- HEADER --}}
-        <header class="mb-12">
+        <header class="mb-12 mt-7">
             <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                 <div>
                     <div class="flex items-center gap-3 mb-3">
@@ -796,4 +941,37 @@ new class extends Component {
             </div>
         @endif
     </div>
+
+    <script>
+        document.addEventListener('livewire:init', () => {
+            Livewire.on('audio-toggle', (data) => {
+                if (window.audioManager) { 
+                    window.audioManager.audioEnabled = data.enabled; 
+                    if (!data.enabled) window.audioManager.stopAll(); 
+                }
+            });
+
+            Livewire.on('play-sound', (data) => {
+                if (!window.audioManager) return;
+                const audioData = Array.isArray(data) ? data[0] : data;
+                window.audioManager.playById(audioData);
+            });
+        });
+
+        setTimeout(() => { 
+            if (!window.audioManager) {
+                console.error('[Player] AudioManager not loaded');
+            }
+        }, 2000);
+    </script>
+
+    <style>
+        @keyframes fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .animate-fade-in {
+            animation: fade-in 0.3s ease-out;
+        }
+    </style>
 </div>
