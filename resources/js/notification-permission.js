@@ -1,21 +1,24 @@
 export function requestNotificationPermission() {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        console.error('[Notifications] Push notifications not supported');
         alert('Notificações push não são suportadas neste navegador');
         return Promise.reject('Not supported');
     }
 
     const publicKey = document.querySelector('meta[name="vapid-public-key"]')?.content;
     if (!publicKey) {
-        console.error('VAPID public key não encontrada');
+        console.error('[Notifications] VAPID public key not found');
         return Promise.reject('No VAPID key');
     }
 
     return Notification.requestPermission()
         .then(permission => {
             if (permission !== 'granted') {
+                console.warn('[Notifications] Permission denied by user');
                 throw new Error('Permissão negada');
             }
 
+            console.log('[Notifications] Permission granted');
             return navigator.serviceWorker.ready;
         })
         .then(registration => {
@@ -46,15 +49,23 @@ export function requestNotificationPermission() {
         })
         .then(response => {
             if (!response.ok) {
+                console.error('[Notifications] Subscription failed:', response.status);
                 throw new Error(`HTTP ${response.status}`);
             }
             return response.json();
         })
         .then(data => {
             if (!data.success) {
+                console.error('[Notifications] Server rejected subscription:', data.message);
                 throw new Error(data.message || 'Erro desconhecido');
             }
+            
+            console.log('[Notifications] Subscription successful');
             return data;
+        })
+        .catch(error => {
+            console.error('[Notifications] Subscription process failed:', error.message);
+            throw error;
         });
 }
 

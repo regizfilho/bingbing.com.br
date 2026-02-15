@@ -3,6 +3,7 @@
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rules;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -18,37 +19,70 @@ new #[Layout('layouts.guest')] class extends Component
 
     public function register(): void
     {
-        $this->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'nickname' => ['required', 'string', 'max:30', 'unique:users,nickname', 'alpha_dash'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'confirmed', Rules\Password::defaults()],
-            'birth_date' => ['required', 'date', 'before:-18 years', 'after:1920-01-01'],
-        ], [
-            'birth_date.before' => 'Você precisa ter pelo menos 18 anos.',
-            'birth_date.after' => 'Data inválida.',
-            'nickname.unique' => 'Esse apelido já está sendo usado.',
-            'nickname.alpha_dash' => 'Use apenas letras, números, - e _',
-            'email.unique' => 'Este e-mail já está cadastrado.',
-        ]);
+        try {
+            $this->validate([
+                'name' => ['required', 'string', 'max:255'],
+                'nickname' => ['required', 'string', 'max:30', 'unique:users,nickname', 'alpha_dash'],
+                'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:users,email'],
+                'password' => ['required', 'string', 'confirmed', Rules\Password::defaults()],
+                'birth_date' => ['required', 'date', 'before:-18 years', 'after:1920-01-01'],
+            ], [
+                'birth_date.before' => 'Você precisa ter pelo menos 18 anos.',
+                'birth_date.after' => 'Data inválida.',
+                'nickname.unique' => 'Esse apelido já está sendo usado.',
+                'nickname.alpha_dash' => 'Use apenas letras, números, - e _',
+                'email.unique' => 'Este e-mail já está cadastrado.',
+            ]);
 
-        $user = User::create([
-            'name' => $this->name,
-            'nickname' => $this->nickname,
-            'email' => $this->email,
-            'password' => Hash::make($this->password),
-            'birth_date' => $this->birth_date,
-            'role' => 'user',
-            'status' => 'active',
-        ]);
+            $user = User::create([
+                'name' => $this->name,
+                'nickname' => $this->nickname,
+                'email' => $this->email,
+                'password' => Hash::make($this->password),
+                'birth_date' => $this->birth_date,
+                'role' => 'user',
+                'status' => 'active',
+            ]);
 
-        $user->wallet()->create([]);
+            $user->wallet()->create([]);
 
-        Auth::login($user);
+            Auth::login($user);
 
-        $this->redirect(route('dashboard', absolute: false), navigate: true);
+            Log::info('User registered', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'nickname' => $user->nickname,
+                'ip' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+            ]);
+
+            $this->redirect(route('dashboard', absolute: false), navigate: true);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Registration attempt failed - validation', [
+                'email' => $this->email,
+                'nickname' => $this->nickname,
+                'ip' => request()->ip(),
+                'errors' => $e->errors(),
+            ]);
+
+            throw $e;
+
+        } catch (\Exception $e) {
+            Log::error('Registration process failed', [
+                'email' => $this->email,
+                'nickname' => $this->nickname,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'ip' => request()->ip(),
+            ]);
+
+            session()->flash('error', 'Erro ao criar conta. Tente novamente.');
+            $this->redirect(route('register', absolute: false));
+        }
     }
-}; ?>
+};
+?>
 
 <div class="min-h-screen flex flex-col justify-center items-center bg-[#020408] px-4 py-10 relative overflow-hidden">
     {{-- Efeitos de fundo --}}

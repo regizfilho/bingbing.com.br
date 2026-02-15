@@ -3,6 +3,7 @@
 use Livewire\Component;
 use App\Models\Game\Game;
 use Livewire\Attributes\Layout;
+use Illuminate\Support\Facades\Log;
 
 new class extends Component {
     public $user;
@@ -12,40 +13,65 @@ new class extends Component {
 
     public function mount()
     {
-        $this->user = auth()->user();
+        try {
+            $this->user = auth()->user();
 
-        $wallet = $this->user->wallet;
-        $rank = $this->user->rank;
+            $wallet = $this->user->wallet;
+            $rank = $this->user->rank;
 
-        // Calcula nível baseado em vitórias (10 vitórias por nível)
-        $level = max(1, floor(($rank?->total_wins ?? 0) / 10) + 1);
-        $nextLevelWins = $level * 10;
-        $currentWins = $rank?->total_wins ?? 0;
-        $xpProgress = ($currentWins % 10) * 10;
+            $level = max(1, floor(($rank?->total_wins ?? 0) / 10) + 1);
+            $nextLevelWins = $level * 10;
+            $currentWins = $rank?->total_wins ?? 0;
+            $xpProgress = ($currentWins % 10) * 10;
 
-        $this->stats = [
-            'balance' => $wallet?->balance ?? 0,
-            'total_wins' => $rank?->total_wins ?? 0,
-            'weekly_wins' => $rank?->weekly_wins ?? 0,
-            'monthly_wins' => $rank?->monthly_wins ?? 0,
-            'total_games' => $rank?->total_games ?? 0,
-            'level' => $level,
-            'next_level' => $nextLevelWins,
-            'xp_progress' => $xpProgress,
-            'win_rate' => $rank?->total_games > 0 ? round(($rank->total_wins / $rank->total_games) * 100) : 0,
-        ];
+            $this->stats = [
+                'balance' => $wallet?->balance ?? 0,
+                'total_wins' => $rank?->total_wins ?? 0,
+                'weekly_wins' => $rank?->weekly_wins ?? 0,
+                'monthly_wins' => $rank?->monthly_wins ?? 0,
+                'total_games' => $rank?->total_games ?? 0,
+                'level' => $level,
+                'next_level' => $nextLevelWins,
+                'xp_progress' => $xpProgress,
+                'win_rate' => $rank?->total_games > 0 ? round(($rank->total_wins / $rank->total_games) * 100) : 0,
+            ];
 
-        $this->myGames = $this->user->createdGames()
-            ->with('package')
-            ->latest()
-            ->take(5)
-            ->get();
+            $this->myGames = $this->user->createdGames()
+                ->with('package')
+                ->latest()
+                ->take(5)
+                ->get();
 
-        $this->playedGames = $this->user->playedGames()
-            ->with(['creator', 'package'])
-            ->latest()
-            ->take(5)
-            ->get();
+            $this->playedGames = $this->user->playedGames()
+                ->with(['creator', 'package'])
+                ->latest()
+                ->take(5)
+                ->get();
+
+        } catch (\Exception $e) {
+            Log::error('Dashboard load failed', [
+                'user_id' => $this->user?->id ?? auth()->id(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            $this->stats = [
+                'balance' => 0,
+                'total_wins' => 0,
+                'weekly_wins' => 0,
+                'monthly_wins' => 0,
+                'total_games' => 0,
+                'level' => 1,
+                'next_level' => 10,
+                'xp_progress' => 0,
+                'win_rate' => 0,
+            ];
+
+            $this->myGames = collect();
+            $this->playedGames = collect();
+
+            $this->dispatch('notify', type: 'error', text: 'Erro ao carregar dashboard.');
+        }
     }
 };
 ?>

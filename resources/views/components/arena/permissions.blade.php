@@ -1,235 +1,118 @@
 <?php
 
 use Illuminate\Support\Facades\Auth;
-use Livewire\Attributes\Computed;
 use Livewire\Component;
 use App\Models\Notification\PushSubscription;
 
 new class extends Component
 {
-    public array $permissions = [
-        'notifications' => false,
-        'audio' => false,
-        'location' => false,
-    ];
-
-    public bool $allGranted = false;
-    public bool $isDismissed = false;
+    public bool $showBanner = false;
     public bool $showDebug = false;
 
     public function mount(): void
     {
-        $this->checkPermissions();
-        $this->isDismissed = session('permissions_dismissed', false);
-        
-        // Debug: mostra se está em ambiente local
         $this->showDebug = config('app.debug', false);
-        
-        \Log::info('🔍 Permissions Component Mount', [
-            'isDismissed' => $this->isDismissed,
-            'hasNotifications' => $this->permissions['notifications'],
-            'showNotice' => $this->showNotice,
-        ]);
+        $this->checkAndUpdateBanner();
     }
 
-    #[Computed]
-    public function showNotice(): bool
+    private function checkAndUpdateBanner(): void
     {
-        if ($this->isDismissed) {
-            \Log::info('❌ Permissions: Dismissed na session');
-            return false;
-        }
-
         $user = Auth::user();
         if (!$user) {
-            \Log::info('❌ Permissions: Sem usuário');
-            return false;
+            $this->showBanner = false;
+            return;
         }
 
-        $hasNotifications = PushSubscription::where('user_id', $user->id)
+        $hasActiveSubscription = PushSubscription::where('user_id', $user->id)
             ->where('is_active', true)
             ->exists();
 
-        \Log::info('🔔 Permissions Check', [
-            'hasNotifications' => $hasNotifications,
-            'shouldShow' => !$hasNotifications,
-        ]);
-
-        return !$hasNotifications;
-    }
-
-    private function checkPermissions(): void
-    {
-        $user = Auth::user();
-        if (!$user) return;
-
-        $this->permissions['notifications'] = PushSubscription::where('user_id', $user->id)
-            ->where('is_active', true)
-            ->exists();
+        $this->showBanner = !$hasActiveSubscription;
     }
 
     public function dismiss(): void
     {
-        session(['permissions_dismissed' => true]);
-        $this->isDismissed = true;
-        
-        \Log::info('✅ Permissions: Dismissed e salvo na session');
+        $this->showBanner = false;
     }
 
     public function resetForDebug(): void
     {
-        session()->forget('permissions_dismissed');
-        $this->isDismissed = false;
-        $this->checkPermissions();
+        $user = Auth::user();
+        if ($user) {
+            PushSubscription::where('user_id', $user->id)->delete();
+        }
         
-        \Log::info('🔄 Permissions: RESET realizado');
+        $this->checkAndUpdateBanner();
         
-        $this->dispatch('notify', [
+        $this->dispatch('notifications:show', [
             'type' => 'info',
-            'text' => '🔄 Banner de permissões resetado!'
+            'message' => '🔄 Subscriptions removidas. Revogue permissões do navegador e recarregue.'
         ]);
+        
+        $this->dispatch('reset-browser-permissions');
     }
 
     public function refreshStatus(): void
     {
-        $this->checkPermissions();
-        
-        // Se todas as permissões foram concedidas, esconde o aviso
-        if ($this->permissions['notifications']) {
-            $this->dismiss();
-        }
-        
-        \Log::info('🔄 Permissions: Status refreshed');
+        $this->checkAndUpdateBanner();
     }
 }; ?>
 
 <div>
-    {{-- BOTÃO DE DEBUG (só aparece em ambiente local) --}}
     @if($showDebug)
         <div class="bg-yellow-500/10 border-b border-yellow-500/20 backdrop-blur-sm">
             <div class="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <span class="text-[10px] font-black text-yellow-400 uppercase">🛠️ Debug Mode</span>
                     <span class="text-[9px] text-slate-400">
-                        Dismissed: <strong class="{{ $isDismissed ? 'text-red-400' : 'text-green-400' }}">{{ $isDismissed ? 'SIM' : 'NÃO' }}</strong> | 
-                        Show: <strong class="{{ $this->showNotice ? 'text-green-400' : 'text-red-400' }}">{{ $this->showNotice ? 'SIM' : 'NÃO' }}</strong> |
-                        Notifications: <strong class="{{ $permissions['notifications'] ? 'text-green-400' : 'text-red-400' }}">{{ $permissions['notifications'] ? 'SIM' : 'NÃO' }}</strong>
+                        Show Banner: <strong class="{{ $showBanner ? 'text-green-400' : 'text-red-400' }}">{{ $showBanner ? 'SIM' : 'NÃO' }}</strong>
                     </span>
                 </div>
                 <button 
                     wire:click="resetForDebug"
                     class="px-3 py-1 bg-yellow-600 hover:bg-yellow-500 text-white text-[9px] font-black uppercase rounded-lg transition-all">
-                    🔄 Reset Banner
+                    🔄 Reset
                 </button>
             </div>
         </div>
     @endif
 
-    @if($this->showNotice && !$isDismissed)
+    @if($showBanner)
         <div 
             x-data="{
-                permissions: @entangle('permissions').live,
-                allGranted: @entangle('allGranted').live,
-                loading: false,
                 show: true,
+                loading: false,
+                audioActivated: false,
+                permissions: {
+                    notifications: false,
+                    audio: false,
+                    location: false
+                },
                 
-                async checkAllPermissions() {
-                    console.log('🔍 Verificando permissões...');
-                    
+                async checkPermissions() {
                     if ('Notification' in window) {
                         this.permissions.notifications = Notification.permission === 'granted';
-                        console.log('🔔 Notificações:', Notification.permission);
                     }
                     
-                    this.permissions.audio = await this.checkAudioPermission();
-                    console.log('🔊 Áudio:', this.permissions.audio);
+                    this.permissions.audio = this.audioActivated;
                     
                     if ('geolocation' in navigator) {
                         try {
                             const result = await navigator.permissions.query({ name: 'geolocation' });
                             this.permissions.location = result.state === 'granted';
-                            console.log('📍 Localização:', result.state);
                         } catch (e) {
                             this.permissions.location = false;
-                            console.log('📍 Localização: erro', e);
                         }
-                    }
-                    
-                    this.allGranted = this.permissions.notifications && this.permissions.audio && this.permissions.location;
-                    console.log('✅ Todas concedidas?', this.allGranted);
-                    
-                    if (this.allGranted) {
-                        console.log('⏳ Auto-fechando em 1.5s...');
-                        setTimeout(() => {
-                            this.show = false;
-                            @this.dismiss();
-                        }, 1500);
                     }
                 },
                 
-                async checkAudioPermission() {
+                async activateAudioOnInteraction() {
+                    if (this.audioActivated) return;
+                    
                     try {
                         const AudioContext = window.AudioContext || window.webkitAudioContext;
-                        const audioCtx = new AudioContext();
-                        const allowed = audioCtx.state === 'running';
-                        audioCtx.close();
-                        return allowed;
-                    } catch {
-                        return false;
-                    }
-                },
-                
-                async requestAllPermissions() {
-                    console.log('🚀 Solicitando todas as permissões...');
-                    this.loading = true;
-                    
-                    try {
-                        if (!this.permissions.notifications) {
-                            console.log('📢 Solicitando notificações...');
-                            await this.requestNotifications();
-                        }
+                        if (!AudioContext) return;
                         
-                        if (!this.permissions.audio) {
-                            console.log('🔊 Solicitando áudio...');
-                            await this.requestAudio();
-                        }
-                        
-                        if (!this.permissions.location) {
-                            console.log('📍 Solicitando localização...');
-                            await this.requestLocation();
-                        }
-                        
-                        await this.checkAllPermissions();
-                        
-                        if (this.allGranted) {
-                            this.showSuccessMessage();
-                            console.log('✅ Todas concedidas! Fechando...');
-                            setTimeout(() => {
-                                this.show = false;
-                                @this.refreshStatus();
-                            }, 1500);
-                        }
-                    } catch (error) {
-                        console.error('❌ Erro ao solicitar permissões:', error);
-                        this.showErrorMessage(error.message);
-                    } finally {
-                        this.loading = false;
-                    }
-                },
-                
-                async requestNotifications() {
-                    if (typeof requestNotificationPermission === 'undefined') {
-                        throw new Error('Sistema de notificações não disponível');
-                    }
-                    
-                    await requestNotificationPermission();
-                    this.permissions.notifications = Notification.permission === 'granted';
-                    console.log('🔔 Resultado notificações:', Notification.permission);
-                },
-                
-                async requestAudio() {
-                    try {
-                        const AudioContext = window.AudioContext || window.webkitAudioContext;
                         const audioCtx = new AudioContext();
                         
                         if (audioCtx.state === 'suspended') {
@@ -244,12 +127,84 @@ new class extends Component
                         oscillator.start();
                         oscillator.stop(audioCtx.currentTime + 0.01);
                         
-                        this.permissions.audio = true;
+                        if (audioCtx.state !== 'suspended') {
+                            this.audioActivated = true;
+                            this.permissions.audio = true;
+                            console.log('🔊 Áudio ativado automaticamente');
+                        }
+                        
                         audioCtx.close();
-                        console.log('🔊 Áudio ativado com sucesso');
                     } catch (error) {
-                        console.error('❌ Erro ao ativar áudio:', error);
-                        this.permissions.audio = false;
+                        console.log('🔊 Áudio não ativado:', error);
+                    }
+                },
+                
+                async requestAllPermissions() {
+                    console.log('🚀 Solicitando todas as permissões...');
+                    this.loading = true;
+                    
+                    await this.activateAudioOnInteraction();
+                    
+                    try {
+                        if (!this.permissions.notifications) {
+                            await this.requestNotifications();
+                        } else {
+                            await this.registerPush();
+                        }
+                        
+                        if (!this.permissions.location) {
+                            await this.requestLocation();
+                        }
+                        
+                        await this.checkPermissions();
+                    } catch (error) {
+                        console.error('❌ Erro:', error);
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                
+                async requestNotifications() {
+                    if (Notification.permission === 'granted') {
+                        this.permissions.notifications = true;
+                        await this.registerPush();
+                        return;
+                    }
+                    
+                    const permission = await Notification.requestPermission();
+                    console.log('🔔 Resultado notificações:', permission);
+                    
+                    this.permissions.notifications = permission === 'granted';
+                    
+                    if (permission === 'granted') {
+                        await this.registerPush();
+                    }
+                },
+                
+                async registerPush() {
+                    if (typeof window.registerPushSubscription !== 'function') {
+                        console.error('❌ registerPushSubscription não disponível');
+                        return;
+                    }
+                    
+                    try {
+                        await window.registerPushSubscription();
+                        await @this.refreshStatus();
+                        
+                        const stillShowBanner = await @this.get('showBanner');
+                        
+                        if (!stillShowBanner) {
+                            @this.dispatch('notifications:show', { 
+                                type: 'success', 
+                                message: '✅ Permissões ativadas!' 
+                            });
+                            
+                            setTimeout(() => {
+                                this.show = false;
+                            }, 1500);
+                        }
+                    } catch (error) {
+                        console.error('❌ Erro ao registrar push:', error);
                     }
                 },
                 
@@ -264,7 +219,7 @@ new class extends Component
                         navigator.geolocation.getCurrentPosition(
                             (position) => {
                                 this.permissions.location = true;
-                                console.log('📍 Localização concedida:', position.coords);
+                                console.log('📍 Localização concedida');
                                 resolve(position);
                             },
                             (error) => {
@@ -277,33 +232,14 @@ new class extends Component
                     });
                 },
                 
-                showSuccessMessage() {
-                    if (window.Livewire) {
-                        Livewire.dispatch('notify', { 
-                            type: 'success', 
-                            text: '✅ Permissões ativadas!' 
-                        });
-                    }
-                },
-                
-                showErrorMessage(message) {
-                    if (window.Livewire) {
-                        Livewire.dispatch('notify', { 
-                            type: 'error', 
-                            text: '❌ ' + message 
-                        });
-                    }
-                },
-                
                 close() {
-                    console.log('❌ Fechando manualmente...');
                     this.show = false;
                     @this.dismiss();
                 }
             }"
             x-init="
-                console.log('🎬 Permissions Banner inicializado');
-                await checkAllPermissions();
+                await checkPermissions();
+                document.addEventListener('click', () => activateAudioOnInteraction(), { once: true });
             "
             x-show="show"
             x-transition:enter="transition ease-out duration-300"
@@ -317,7 +253,6 @@ new class extends Component
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5">
                 <div class="flex items-center justify-between gap-3">
                     
-                    {{-- Lado Esquerdo: Ícone e Texto Compacto --}}
                     <div class="flex items-center gap-2.5 flex-1 min-w-0">
                         <div class="relative flex-shrink-0">
                             <div class="w-8 h-8 rounded-lg bg-indigo-600/20 flex items-center justify-center text-indigo-400 border border-indigo-500/20">
@@ -325,19 +260,17 @@ new class extends Component
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                                 </svg>
                             </div>
-                            <div x-show="!allGranted" class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                            <div class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
                         </div>
                         
                         <div class="flex-1 min-w-0">
                             <p class="text-[10px] text-slate-300 font-bold uppercase tracking-tight truncate">
-                                <span x-show="!allGranted">Ative permissões para melhor experiência</span>
-                                <span x-show="allGranted" class="text-emerald-400">✓ Permissões ativadas com sucesso!</span>
+                                Ative permissões para melhor experiência
                             </p>
                         </div>
                     </div>
 
-                    {{-- Centro: Status Compacto (3 badges pequenos) --}}
-                    <div x-show="!allGranted" class="hidden sm:flex items-center gap-1.5">
+                    <div class="hidden sm:flex items-center gap-1.5">
                         <div 
                             :class="permissions.notifications ? 'bg-emerald-500/20 border-emerald-500/40' : 'bg-slate-700/30 border-slate-600/40'"
                             class="flex items-center gap-1 px-2 py-1 rounded border transition-all duration-300"
@@ -369,10 +302,8 @@ new class extends Component
                         </div>
                     </div>
 
-                    {{-- Lado Direito: Botão Compacto --}}
                     <div class="flex items-center gap-2">
                         <button 
-                            x-show="!allGranted"
                             @click="requestAllPermissions()"
                             :disabled="loading"
                             class="group relative overflow-hidden px-4 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:from-indigo-800 disabled:to-purple-800 text-white text-[9px] font-black uppercase tracking-wider rounded-lg transition-all duration-300 flex items-center gap-2 shadow-sm disabled:cursor-not-allowed">
@@ -388,7 +319,6 @@ new class extends Component
                             <div x-show="loading" class="relative w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                         </button>
 
-                        {{-- Botão Fechar --}}
                         <button 
                             @click="close()"
                             class="text-slate-400 hover:text-white transition-colors p-1"

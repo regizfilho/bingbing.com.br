@@ -24,64 +24,75 @@ new #[Layout('layouts.guest')] class extends Component
 
     public function resetPassword()
     {
-        // Validação
-        $validated = $this->validate([
-            'token' => ['required'],
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string', 'confirmed', Rules\Password::defaults()],
-        ], [
-            'password.confirmed' => 'As senhas não coincidem.',
-        ]);
-
-        // Log para debug
-        Log::info('Tentando resetar senha', [
-            'email' => $this->email,
-            'token_length' => strlen($this->token)
-        ]);
-
-        // Reset de senha
-        $status = Password::reset(
-            [
-                'email' => $this->email,
-                'password' => $this->password,
-                'password_confirmation' => $this->password_confirmation,
-                'token' => $this->token,
-            ],
-            function ($user, $password) {
-                Log::info('Callback de reset executado', ['user_id' => $user->id]);
-                
-                $user->forceFill([
-                    'password' => Hash::make($password),
-                    'remember_token' => Str::random(60),
-                ])->save();
-
-                event(new PasswordReset($user));
-                
-                Log::info('Senha atualizada com sucesso', ['user_id' => $user->id]);
-            }
-        );
-
-        Log::info('Status do reset', ['status' => $status]);
-
-        // Verificar resultado
-        if ($status !== Password::PASSWORD_RESET) {
-            Log::error('Falha no reset de senha', [
-                'status' => $status,
-                'translated' => __($status)
+        try {
+            $validated = $this->validate([
+                'token' => ['required'],
+                'email' => ['required', 'email'],
+                'password' => ['required', 'string', 'confirmed', Rules\Password::defaults()],
+            ], [
+                'password.confirmed' => 'As senhas não coincidem.',
             ]);
-            
-            $this->addError('email', __($status));
-            return;
-        }
 
-        // Sucesso!
-        Log::info('Reset de senha concluído com sucesso');
-        session()->flash('status', 'Senha redefinida com sucesso! Você já pode fazer login.');
-        
-        // Redirecionar sem wire:navigate
-        return redirect()->route('auth.login');
+            $status = Password::reset(
+                [
+                    'email' => $this->email,
+                    'password' => $this->password,
+                    'password_confirmation' => $this->password_confirmation,
+                    'token' => $this->token,
+                ],
+                function ($user, $password) {
+                    $user->forceFill([
+                        'password' => Hash::make($password),
+                        'remember_token' => Str::random(60),
+                    ])->save();
+
+                    event(new PasswordReset($user));
+                    
+                    Log::info('Password reset successful', [
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                        'ip' => request()->ip(),
+                    ]);
+                }
+            );
+
+            if ($status !== Password::PASSWORD_RESET) {
+                Log::warning('Password reset failed', [
+                    'email' => $this->email,
+                    'status' => $status,
+                    'ip' => request()->ip(),
+                ]);
+                
+                $this->addError('email', __($status));
+                return;
+            }
+
+            session()->flash('status', 'Senha redefinida com sucesso! Você já pode fazer login.');
+            
+            return redirect()->route('auth.login');
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Password reset validation failed', [
+                'email' => $this->email,
+                'ip' => request()->ip(),
+                'errors' => $e->errors(),
+            ]);
+
+            throw $e;
+
+        } catch (\Exception $e) {
+            Log::error('Password reset process failed', [
+                'email' => $this->email,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'ip' => request()->ip(),
+            ]);
+
+            $this->addError('email', 'Erro ao redefinir senha. Tente novamente.');
+        }
     }
-}; ?>
+};
+?>
 
 <div class="min-h-screen flex flex-col justify-center items-center bg-[#020408] px-4 relative overflow-hidden">
     {{-- Efeitos de fundo --}}

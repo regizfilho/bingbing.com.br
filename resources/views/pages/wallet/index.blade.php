@@ -7,6 +7,7 @@ use App\Models\Coupon;
 use App\Models\CouponUser;
 use Livewire\Attributes\Layout;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 new #[Layout('layouts.app')] class extends Component {
@@ -126,7 +127,9 @@ new #[Layout('layouts.app')] class extends Component {
         ]);
 
         try {
-            $coupon = Coupon::where('code', strtoupper(trim($this->couponCode)))
+            $code = strtoupper(trim($this->couponCode));
+
+            $coupon = Coupon::where('code', $code)
                 ->where('is_active', true)
                 ->where(function ($q) {
                     $q->whereNull('expires_at')
@@ -135,48 +138,80 @@ new #[Layout('layouts.app')] class extends Component {
                 ->first();
 
             if (!$coupon) {
+                Log::info('Coupon not found or expired', [
+                    'user_id' => $this->user->id,
+                    'code' => $code,
+                ]);
+
                 $this->addError('couponCode', 'Cupom inválido ou expirado');
                 return;
             }
 
-            // Verifica uso máximo
             if ($coupon->max_uses && $coupon->used_count >= $coupon->max_uses) {
+                Log::info('Coupon max uses exceeded', [
+                    'user_id' => $this->user->id,
+                    'coupon_id' => $coupon->id,
+                    'code' => $code,
+                    'used_count' => $coupon->used_count,
+                    'max_uses' => $coupon->max_uses,
+                ]);
+
                 $this->addError('couponCode', 'Cupom esgotado');
                 return;
             }
 
-            // Verifica se usuário já usou
             if ($coupon->max_uses_per_user) {
                 $userUses = CouponUser::where('coupon_id', $coupon->id)
                     ->where('user_id', $this->user->id)
                     ->count();
                 
                 if ($userUses >= $coupon->max_uses_per_user) {
+                    Log::info('Coupon user limit exceeded', [
+                        'user_id' => $this->user->id,
+                        'coupon_id' => $coupon->id,
+                        'code' => $code,
+                        'user_uses' => $userUses,
+                        'max_uses_per_user' => $coupon->max_uses_per_user,
+                    ]);
+
                     $this->addError('couponCode', 'Você já usou este cupom');
                     return;
                 }
             }
 
-            // Verifica valor mínimo
             if ($coupon->min_purchase_amount && $this->selectedPackage->price_brl < $coupon->min_purchase_amount) {
                 $this->addError('couponCode', 'Valor mínimo: R$ ' . number_format($coupon->min_purchase_amount, 2, ',', '.'));
                 return;
             }
 
-            // Calcula desconto
             if ($coupon->discount_type === 'percentage') {
                 $this->discountAmount = ($this->selectedPackage->price_brl * $coupon->discount_value) / 100;
             } else {
                 $this->discountAmount = $coupon->discount_value;
             }
 
-            // Limita ao valor do produto
             $this->discountAmount = min($this->discountAmount, $this->selectedPackage->price_brl);
 
             $this->appliedCoupon = $coupon;
+
+            Log::info('Coupon applied', [
+                'user_id' => $this->user->id,
+                'coupon_id' => $coupon->id,
+                'code' => $code,
+                'discount_amount' => $this->discountAmount,
+                'package_id' => $this->selectedPackage->id,
+            ]);
+
             $this->dispatch('notify', type: 'success', text: '🎫 Cupom aplicado com sucesso!');
 
         } catch (\Exception $e) {
+            Log::error('Coupon validation failed', [
+                'user_id' => $this->user->id,
+                'code' => strtoupper(trim($this->couponCode)),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             $this->addError('couponCode', 'Erro ao validar cupom');
         }
     }
@@ -248,15 +283,33 @@ new #[Layout('layouts.app')] class extends Component {
 
                     $this->appliedCoupon->increment('used_count');
                 }
+
+                Log::info('Package purchased', [
+                    'user_id' => $this->user->id,
+                    'package_id' => $this->selectedPackage->id,
+                    'transaction_id' => $transaction->id,
+                    'credits' => $this->selectedPackage->credits,
+                    'original_amount' => $originalAmount,
+                    'discount_amount' => $discountAmount,
+                    'final_amount' => $finalAmount,
+                    'coupon_id' => $this->appliedCoupon?->id,
+                    'balance_after' => $wallet->balance,
+                ]);
             });
 
             $this->dispatch('notify', type: 'success', text: 'Recarga realizada com sucesso!');
             $this->cancelPurchase();
             
-            // Atualiza estatísticas
             unset($this->walletStats);
             
         } catch (\Throwable $e) {
+            Log::error('Package purchase failed', [
+                'user_id' => $this->user->id,
+                'package_id' => $this->selectedPackageId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             $this->dispatch('notify', type: 'error', text: 'Erro na transação: ' . $e->getMessage());
         } finally {
             $this->isProcessing = false;

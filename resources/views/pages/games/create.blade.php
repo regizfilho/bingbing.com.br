@@ -42,7 +42,6 @@ new #[Layout('layouts.app')] class extends Component {
 
     public array $prizes = [];
 
-    // ── CAMPOS DE ÁUDIO (IDs dos GameAudio) ──────────────────────────
     public bool $audio_enabled = true;
     public ?int $selected_number_sound_id = null;
     public ?int $selected_winner_sound_id = null;
@@ -173,7 +172,6 @@ new #[Layout('layouts.app')] class extends Component {
         ];
     }
 
-    // ── COMPUTED PARA ÁUDIOS ────────────────────────────────────────
     #[Computed]
     public function numberSounds()
     {
@@ -296,7 +294,6 @@ new #[Layout('layouts.app')] class extends Component {
 
         $packages = $this->packages->keyBy('slug');
 
-        // Basic -> Premium
         if ($this->packageType === 'basic' && isset($packages['premium'])) {
             $basicCost = $this->selectedPackage->cost_credits;
             $premiumCost = $packages['premium']->cost_credits;
@@ -309,7 +306,6 @@ new #[Layout('layouts.app')] class extends Component {
             }
         }
 
-        // Premium -> VIP
         if ($this->packageType === 'premium' && isset($packages['vip'])) {
             $premiumCost = $this->selectedPackage->cost_credits;
             $vipCost = $packages['vip']->cost_credits;
@@ -334,12 +330,10 @@ new #[Layout('layouts.app')] class extends Component {
 
         $stats = $this->usageStats;
 
-        // Mostra incentivo se usuário grátis criou mais de 8 salas no mês
         if ($this->selectedPackage->is_free && $stats['free_month'] >= 8) {
             return true;
         }
 
-        // Mostra se usuário básico criou mais de 3 salas hoje
         if ($this->packageType === 'basic' && $stats['paid_today'] >= 3) {
             return true;
         }
@@ -357,7 +351,6 @@ new #[Layout('layouts.app')] class extends Component {
             ];
         }
 
-        // Carrega defaults de áudio do banco
         $defaultNumber = GameAudio::active()
             ->where('type', 'player')
             ->where('is_default', true)
@@ -394,17 +387,14 @@ new #[Layout('layouts.app')] class extends Component {
             $this->max_rounds = min((int) $package->max_rounds, $restrictions['max_rounds'] ?? 1);
             $this->cards_per_player = min((int) ($package->cards_per_player ?? 1), $restrictions['max_cards_per_player'] ?? 1);
 
-            // Desabilita sorteio automático se não permitido
             if (!$restrictions['allow_auto_draw'] && $this->draw_mode === 'automatic') {
                 $this->draw_mode = 'manual';
             }
 
-            // Desabilita auto-claim se não permitido
             if (!$restrictions['allow_prize_auto_claim']) {
                 $this->auto_claim_prizes = false;
             }
 
-            // Desabilita áudio customizado se não permitido
             if (!$restrictions['allow_custom_audio']) {
                 $this->audio_enabled = false;
             }
@@ -450,10 +440,8 @@ new #[Layout('layouts.app')] class extends Component {
 
             $game = DB::transaction(function () {
                 $package = GamePackage::active()->where('id', $this->game_package_id)->lockForUpdate()->firstOrFail();
-
                 $user = auth()->user()->lockForUpdate()->first();
 
-                // Revalida limites com query fresca
                 $today = now()->startOfDay();
                 $monthStart = now()->startOfMonth();
                 $usedToday = Game::where('creator_id', $user->id)->where('game_package_id', $package->id)->where('created_at', '>=', $today)->count();
@@ -482,13 +470,11 @@ new #[Layout('layouts.app')] class extends Component {
                 $maxRounds = min((int) $this->max_rounds, (int) $package->max_rounds, $restrictions['max_rounds'] ?? 1);
                 $cardsPerPlayer = min((int) $this->cards_per_player, (int) ($package->max_cards_per_player ?? 10), $restrictions['max_cards_per_player'] ?? 10);
 
-                // Valida sorteio automático
                 $drawMode = $this->draw_mode;
                 if ($drawMode === 'automatic' && !$restrictions['allow_auto_draw']) {
                     $drawMode = 'manual';
                 }
 
-                // Valida auto-claim
                 $autoClaimPrizes = $this->auto_claim_prizes && $restrictions['allow_prize_auto_claim'];
 
                 $validPrizes = array_values(array_filter($this->prizes, fn($p) => !empty($p['name'])));
@@ -498,7 +484,6 @@ new #[Layout('layouts.app')] class extends Component {
                     throw new \Exception('É necessário ao menos um prêmio válido.');
                 }
 
-                // ── CRIA O GAME ─────────────────────────────────────
                 $game = Game::create([
                     'creator_id' => $user->id,
                     'game_package_id' => $package->id,
@@ -518,7 +503,6 @@ new #[Layout('layouts.app')] class extends Component {
                     'invite_code' => strtoupper(Str::random(10)),
                 ]);
 
-                // ── SALVA CONFIGURAÇÕES DE ÁUDIO (PROFISSIONAL) ────
                 if ($restrictions['allow_custom_audio'] && $this->audio_enabled) {
                     if ($this->selected_number_sound_id) {
                         GameAudioSetting::create([
@@ -537,15 +521,8 @@ new #[Layout('layouts.app')] class extends Component {
                             'is_enabled' => true,
                         ]);
                     }
-
-                    \Log::info('✅ Áudio configurado na criação', [
-                        'game_id' => $game->id,
-                        'number_sound_id' => $this->selected_number_sound_id,
-                        'winner_sound_id' => $this->selected_winner_sound_id,
-                    ]);
                 }
 
-                // ── CRIA PRÊMIOS ────────────────────────────────────
                 foreach ($validPrizes as $index => $prize) {
                     $game->prizes()->create([
                         'uuid' => (string) Str::uuid(),
@@ -555,12 +532,10 @@ new #[Layout('layouts.app')] class extends Component {
                     ]);
                 }
 
-                // ── DEBITA CRÉDITOS ─────────────────────────────────
                 if (!$package->is_free) {
                     $user->wallet->debit($package->cost_credits, "Arena: {$this->name}", $game);
                 }
 
-                // ── INVALIDA CACHES ─────────────────────────────────
                 Cache::forget('user_game_stats_' . $user->id);
                 Cache::forget("user_game_usage_{$user->id}_{$package->id}_today");
                 Cache::forget("user_game_usage_{$user->id}_{$package->id}_month");
@@ -570,6 +545,10 @@ new #[Layout('layouts.app')] class extends Component {
 
             $this->redirect(route('games.edit', $game->uuid));
         } catch (\Throwable $e) {
+            \Log::error('Game creation failed', [
+                'user_id' => $this->user->id,
+                'error' => $e->getMessage()
+            ]);
             $this->dispatch('notify', type: 'error', text: $e->getMessage());
         } finally {
             $this->isCreating = false;

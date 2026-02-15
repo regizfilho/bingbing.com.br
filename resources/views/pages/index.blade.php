@@ -2,6 +2,7 @@
 
 use Livewire\Component;
 use Livewire\Attributes\Layout;
+use Illuminate\Support\Facades\Log;
 use App\Models\Page;
 
 new #[Layout('layouts.guest')] class extends Component {
@@ -10,9 +11,32 @@ new #[Layout('layouts.guest')] class extends Component {
 
     public function mount(string $slug): void
     {
-        $this->page = Page::where('slug', $slug)
-            ->where('is_active', true)
-            ->firstOrFail();
+        try {
+            $this->page = Page::where('slug', $slug)
+                ->where('is_active', true)
+                ->firstOrFail();
+
+            Log::info('Page accessed', [
+                'page_id' => $this->page->id,
+                'slug' => $slug,
+                'ip' => request()->ip(),
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            Log::warning('Page not found', [
+                'slug' => $slug,
+                'ip' => request()->ip(),
+            ]);
+
+            abort(404);
+        } catch (\Exception $e) {
+            Log::error('Page load failed', [
+                'slug' => $slug,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            abort(500);
+        }
     }
 };
 ?>

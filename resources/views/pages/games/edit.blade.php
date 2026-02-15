@@ -147,6 +147,10 @@ new class extends Component {
             $this->loadGameData();
             $this->dispatch('notify', type: 'success', text: 'Alterações salvas com sucesso!');
         } catch (\Exception $e) {
+            \Log::error('Game update failed', [
+                'game_id' => $this->game->id,
+                'error' => $e->getMessage()
+            ]);
             $this->dispatch('notify', type: 'error', text: 'Erro ao salvar alterações.');
         }
     }
@@ -159,13 +163,11 @@ new class extends Component {
 
         try {
             DB::transaction(function () {
-                // 🔒 Lock pessimista para evitar double submit real
                 $game = Game::where('id', $this->game->id)
                     ->lockForUpdate()
                     ->with(['players', 'prizes', 'package'])
                     ->firstOrFail();
 
-                // 🚫 Se já não estiver mais em draft, aborta
                 if ($game->status !== 'draft') {
                     return;
                 }
@@ -182,26 +184,25 @@ new class extends Component {
                     'status' => 'waiting',
                 ]);
 
-                $this->game = $game; // sincroniza instância atual
-
+                $this->game = $game;
                 $this->syncPrizes();
 
                 if ($game->players()->count() > 0) {
                     $game->generateCardsForCurrentRound();
                 }
 
-                // 🎮 PUSH NOTIFICATION
                 $pushService = app(\App\Services\PushNotificationService::class);
-
                 $message = \App\Services\NotificationMessages::gameRoomOpened($this->name, $game->invite_code);
-
                 $pushService->notifyUser($this->user->id, $message['title'], $message['body'], route('games.play', $game->uuid));
             });
 
             $this->dispatch('notify', type: 'success', text: 'Sala aberta com sucesso!');
             $this->redirect(route('games.play', $this->game->uuid));
         } catch (\Throwable $e) {
-            report($e);
+            \Log::error('Game publish failed', [
+                'game_id' => $this->game->id,
+                'error' => $e->getMessage()
+            ]);
             $this->dispatch('notify', type: 'error', text: 'Erro ao abrir sala.');
         }
     }

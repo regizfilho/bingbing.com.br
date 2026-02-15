@@ -8,28 +8,26 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 use App\Models\Wallet\GiftCard;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
-    public ?string $param = null; // Parâmetro da URL (success, cancel, etc)
-    public string $tab = 'redeem'; // redeem, purchase, history
+    public ?string $param = null;
+    public string $tab = 'redeem';
 
-    // Resgatar
     public string $redeemCode = '';
 
-    // Comprar
     public ?int $selectedCreditValue = null;
     public array $availableValues = [100, 250, 500, 1000, 2500, 5000];
     public bool $showPurchaseConfirmation = false;
+    public bool $isProcessing = false;
 
     public function mount(?string $param = null): void
     {
         $this->param = $param;
 
-        // Mostrar mensagem de sucesso se vier do pagamento
         if ($param === 'success') {
             $this->dispatch('notify', type: 'success', text: '🎉 Pagamento confirmado! Seu Gift Card foi criado com sucesso.');
-            // Mudar automaticamente para a aba de histórico
             $this->tab = 'history';
         } elseif ($param === 'cancel') {
             $this->dispatch('notify', type: 'warning', text: 'Pagamento cancelado. Você pode tentar novamente quando quiser.');
@@ -39,7 +37,7 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
     protected function rules(): array
     {
         return [
-            'redeemCode' => 'required|string|size:14', // XXXX-XXXX-XXXX
+            'redeemCode' => 'required|string|size:14',
             'selectedCreditValue' => 'required|integer|min:100',
         ];
     }
@@ -75,7 +73,6 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
             return null;
         }
 
-        // Preço = valor em créditos (1:1 neste exemplo, ajuste conforme necessário)
         return (float) $this->selectedCreditValue;
     }
 
@@ -104,7 +101,7 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
     {
         if ($this->isProcessing) {
             return;
-        } // 🔒 HARD LOCK
+        }
         $this->isProcessing = true;
 
         $this->validate(['selectedCreditValue' => 'required|integer|min:100']);
@@ -113,7 +110,6 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
             DB::transaction(function () {
                 $wallet = $this->user->wallet ?? $this->user->wallet()->create(['balance' => 0]);
 
-                // 🔐 Lock pessimista
                 $wallet = $wallet->lockForUpdate()->first();
 
                 if ($wallet->balance < $this->selectedPrice) {
@@ -141,14 +137,29 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
 
                 $pushService->notifyUser($this->user->id, $message['title'], $message['body'], route('wallet.gift'));
 
+                Log::info('Gift card purchased', [
+                    'user_id' => $this->user->id,
+                    'gift_card_id' => $giftCard->id,
+                    'code' => $giftCard->code,
+                    'credit_value' => $this->selectedCreditValue,
+                    'price' => $this->selectedPrice,
+                ]);
+
                 $this->dispatch('notify', type: 'success', text: "Gift Card criado! Código: {$giftCard->code}");
             });
 
             $this->cancelPurchase();
         } catch (\Throwable $e) {
+            Log::error('Gift card purchase failed', [
+                'user_id' => $this->user->id,
+                'credit_value' => $this->selectedCreditValue,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             $this->dispatch('notify', type: 'error', text: $e->getMessage());
         } finally {
-            $this->isProcessing = false; // 🔓 sempre libera
+            $this->isProcessing = false;
         }
     }
 
@@ -156,7 +167,7 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
     {
         if ($this->isProcessing) {
             return;
-        } // 🔒 HARD LOCK
+        }
         $this->isProcessing = true;
 
         $this->validate(['redeemCode' => 'required|string|size:14']);
@@ -172,6 +183,13 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
                 }
 
                 if (!$giftCard->canBeRedeemed()) {
+                    Log::warning('Gift card redemption attempt failed', [
+                        'user_id' => $this->user->id,
+                        'code' => $code,
+                        'status' => $giftCard->status,
+                        'reason' => 'cannot_be_redeemed',
+                    ]);
+
                     throw new \Exception('Este Gift Card não pode ser resgatado.');
                 }
 
@@ -200,14 +218,29 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
 
                 $pushService->notifyUser($this->user->id, $message['title'], $message['body'], route('wallet.index'));
 
+                Log::info('Gift card redeemed', [
+                    'user_id' => $this->user->id,
+                    'gift_card_id' => $giftCard->id,
+                    'code' => $code,
+                    'credit_value' => $giftCard->credit_value,
+                    'ip_address' => request()->ip(),
+                ]);
+
                 $this->dispatch('notify', type: 'success', text: "Gift Card resgatado! +{$giftCard->credit_value} créditos.");
 
                 $this->reset('redeemCode');
             });
         } catch (\Throwable $e) {
+            Log::error('Gift card redemption failed', [
+                'user_id' => $this->user->id,
+                'code' => strtoupper(trim($this->redeemCode)),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             $this->dispatch('notify', type: 'error', text: $e->getMessage());
         } finally {
-            $this->isProcessing = false; // 🔓 sempre libera
+            $this->isProcessing = false;
         }
     }
 
@@ -218,6 +251,7 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
     }
 };
 ?>
+
 <div class="min-h-screen bg-[#05070a] text-slate-200 pb-24 selection:bg-blue-500/30">
 
 

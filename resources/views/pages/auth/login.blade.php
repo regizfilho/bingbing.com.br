@@ -2,6 +2,7 @@
 
 use App\Livewire\Forms\LoginForm;
 use Illuminate\Support\Facades\Session;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -11,12 +12,44 @@ new #[Layout('layouts.guest')] class extends Component
 
     public function login(): void
     {
-        $this->validate();
-        $this->form->authenticate();
-        Session::regenerate();
-        $this->redirectIntended(default: route('dashboard', absolute: false));
+        try {
+            $this->validate();
+            
+            $this->form->authenticate();
+            
+            Session::regenerate();
+
+            Log::info('User logged in', [
+                'user_id' => auth()->id(),
+                'email' => auth()->user()->email,
+                'ip' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+            ]);
+
+            $this->redirectIntended(default: route('dashboard', absolute: false));
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Login attempt failed - validation', [
+                'email' => $this->form->email ?? null,
+                'ip' => request()->ip(),
+                'errors' => $e->errors(),
+            ]);
+
+            throw $e;
+
+        } catch (\Exception $e) {
+            Log::error('Login process failed', [
+                'email' => $this->form->email ?? null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'ip' => request()->ip(),
+            ]);
+
+            $this->addError('email', 'Erro ao processar login. Tente novamente.');
+        }
     }
-}; ?>
+};
+?>
 
 <div class="min-h-screen flex flex-col justify-center items-center bg-[#020408] px-4 relative overflow-hidden">
     {{-- Efeitos de fundo --}}

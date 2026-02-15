@@ -1,5 +1,3 @@
-// NO audio-manager.js, SUBSTITUA a classe AudioManager por:
-
 class AudioManager {
     constructor() {
         this.audioEnabled = true;
@@ -7,18 +5,14 @@ class AudioManager {
         this.currentAudio = null;
         this.audioCache = new Map();
         this.voices = [];
-        this.userInteracted = false; // NOVO
+        this.userInteracted = false;
         this.init();
     }
 
     init() {
-        // Registrar primeira interação do usuário
         const enableAudio = () => {
             this.userInteracted = true;
-            console.log("✅ Usuário interagiu - áudio liberado");
-            document.removeEventListener("click", enableAudio);
-            document.removeEventListener("touchstart", enableAudio);
-            document.removeEventListener("keydown", enableAudio);
+            console.log('[AudioManager] User interaction detected - audio unlocked');
         };
 
         document.addEventListener("click", enableAudio, { once: true });
@@ -38,8 +32,7 @@ class AudioManager {
 
             Livewire.on("change-sound", (data) => {
                 localStorage.setItem(`sound_${data.sound}`, data.name);
-                this.audioCache.delete(data.name); // ← importante!
-                console.log(`Cache limpo para som: ${data.name}`);
+                this.audioCache.delete(data.name);
             });
 
             Livewire.on("play-sound", (data) => {
@@ -53,10 +46,6 @@ class AudioManager {
     loadVoices() {
         const loadVoicesList = () => {
             this.voices = speechSynthesis.getVoices();
-            console.log(
-                "Vozes disponíveis:",
-                this.voices.map((v) => `${v.name} (${v.lang})`),
-            );
         };
 
         loadVoicesList();
@@ -67,16 +56,10 @@ class AudioManager {
 
     async play(type, name) {
         if (window.isControlPanel === true) {
-            console.log(
-                `[Controle] Evento ignorado localmente: ${type} - ${name}`,
-            );
             return;
         }
 
-        if (!this.audioEnabled) return;
-
-        if (!this.userInteracted) {
-            console.warn("Aguardando interação do usuário");
+        if (!this.audioEnabled || !this.userInteracted) {
             return;
         }
 
@@ -86,21 +69,20 @@ class AudioManager {
                 this.playAudio(audio);
             }
         } catch (error) {
-            console.warn("Erro ao tocar som:", error);
+            console.error('[AudioManager] Audio playback failed:', {
+                type,
+                name,
+                error: error.message
+            });
         }
     }
 
     async getAudio(name) {
         if (this.audioCache.has(name)) {
-            console.log(`Usando cache para: ${name}`);
             return this.audioCache.get(name);
         }
 
-        console.log(`Buscando novo áudio: ${name}`);
-
-        const response = await fetch(
-            `/api/game-audio/${encodeURIComponent(name)}`,
-        );
+        const response = await fetch(`/api/game-audio/${encodeURIComponent(name)}`);
         const data = await response.json();
 
         let audio;
@@ -110,7 +92,7 @@ class AudioManager {
             audio.preload = "auto";
         } else if (data.audio_type === "tts" && this.ttsEnabled) {
             const utterance = new SpeechSynthesisUtterance(
-                data.tts_text || "Número sorteado",
+                data.tts_text || "Número sorteado"
             );
             utterance.lang = data.tts_language || "pt-BR";
             utterance.rate = data.tts_rate || 1.0;
@@ -121,31 +103,20 @@ class AudioManager {
                 let voice = this.voices.find(
                     (v) =>
                         v.name === data.tts_voice ||
-                        v.name
-                            .toLowerCase()
-                            .includes(
-                                data.tts_voice
-                                    .toLowerCase()
-                                    .replace("google ", ""),
-                            ) ||
-                        (v.lang === data.tts_language && v.default),
+                        v.name.toLowerCase().includes(
+                            data.tts_voice.toLowerCase().replace("google ", "")
+                        ) ||
+                        (v.lang === data.tts_language && v.default)
                 );
 
                 if (!voice) {
-                    voice = this.voices.find(
-                        (v) => v.lang === data.tts_language,
-                    );
+                    voice = this.voices.find((v) => v.lang === data.tts_language);
                 }
 
                 if (voice) {
                     utterance.voice = voice;
-                    console.log(
-                        `🎤 Voz selecionada: ${voice.name} (${voice.lang})`,
-                    );
                 } else {
-                    console.warn(
-                        `Nenhuma voz encontrada para: ${data.tts_voice}`,
-                    );
+                    console.warn('[AudioManager] Voice not found:', data.tts_voice);
                 }
             }
 
@@ -170,12 +141,10 @@ class AudioManager {
 
         if (audio instanceof SpeechSynthesisUtterance) {
             speechSynthesis.speak(audio);
-            console.log("🎤 Tocando TTS");
         } else if (audio instanceof Audio) {
-            audio
-                .play()
-                .then(() => console.log("🔊 MP3 tocando"))
-                .catch((err) => console.warn("MP3 play failed:", err));
+            audio.play().catch((err) => {
+                console.error('[AudioManager] MP3 playback failed:', err.message);
+            });
             audio.onended = () => {
                 this.currentAudio = null;
             };
@@ -198,4 +167,3 @@ class AudioManager {
 }
 
 window.audioManager = new AudioManager();
-console.log("=== AudioManager criado ===", window.audioManager);

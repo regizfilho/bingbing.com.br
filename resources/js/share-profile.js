@@ -13,7 +13,8 @@ const shareProfile = () => ({
                 title: options.title || 'Bingo',
                 text: options.text || options.message,
                 url: options.url
-            }).catch(() => {
+            }).catch((error) => {
+                console.warn('[Share] Native share failed, using fallback:', error.message);
                 this.fallbackShare(options);
             });
         } else {
@@ -26,7 +27,6 @@ const shareProfile = () => ({
         const text = encodeURIComponent(options.text || options.message || '');
         
         const whatsappUrl = `https://api.whatsapp.com/send?text=${text}%20${encodeURIComponent(url)}`;
-        const twitterUrl = `https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(url)}`;
         
         window.open(whatsappUrl, '_blank');
     },

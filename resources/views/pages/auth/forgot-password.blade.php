@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
 
@@ -11,17 +12,41 @@ new #[Layout('layouts.guest')] class extends Component {
     {
         $this->validate(['email' => ['required', 'email']]);
 
-        $status = Password::sendResetLink(['email' => $this->email]);
+        try {
+            $status = Password::sendResetLink(['email' => $this->email]);
 
-        if ($status !== Password::RESET_LINK_SENT) {
-            $this->addError('email', __($status));
-            return;
+            if ($status !== Password::RESET_LINK_SENT) {
+                Log::info('Password reset link failed', [
+                    'email' => $this->email,
+                    'status' => $status,
+                    'ip' => request()->ip(),
+                ]);
+
+                $this->addError('email', __($status));
+                return;
+            }
+
+            Log::info('Password reset link sent', [
+                'email' => $this->email,
+                'ip' => request()->ip(),
+            ]);
+
+            $this->reset('email');
+            session()->flash('status', __($status));
+
+        } catch (\Exception $e) {
+            Log::error('Password reset request failed', [
+                'email' => $this->email,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'ip' => request()->ip(),
+            ]);
+
+            $this->addError('email', 'Erro ao enviar link de recuperação.');
         }
-
-        $this->reset('email');
-        session()->flash('status', __($status));
     }
-}; ?>
+};
+?>
 
 <div class="min-h-screen flex flex-col justify-center items-center bg-[#020408] px-4 relative overflow-hidden">
     {{-- Efeitos de fundo --}}

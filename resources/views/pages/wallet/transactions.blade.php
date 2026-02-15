@@ -4,6 +4,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Livewire\Attributes\Layout;
+use Illuminate\Support\Facades\Log;
 
 new #[Layout('layouts.app')] class extends Component {
     use WithPagination;
@@ -17,14 +18,25 @@ new #[Layout('layouts.app')] class extends Component {
     #[Computed]
     public function transactions()
     {
-        if (!$this->user->wallet) {
+        try {
+            if (!$this->user->wallet) {
+                return collect();
+            }
+            
+            return $this->user->wallet
+                ->transactions()
+                ->with(['transactionable', 'coupon'])
+                ->latest()
+                ->paginate(15);
+        } catch (\Exception $e) {
+            Log::error('Transaction history load failed', [
+                'user_id' => $this->user->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
             return collect();
         }
-        return $this->user->wallet
-            ->transactions()
-            ->with(['transactionable', 'coupon'])
-            ->latest()
-            ->paginate(15);
     }
 };
 ?>

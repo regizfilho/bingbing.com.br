@@ -19,24 +19,62 @@ class PushNotificationController extends Controller
 
     public function subscribe(Request $request): JsonResponse
     {
+        Log::info('📥 Subscribe request recebida', [
+            'has_auth' => auth()->check(),
+            'user_id' => auth()->id(),
+            'endpoint' => $request->input('endpoint'),
+        ]);
+
         if (!auth()->check()) {
+            Log::warning('❌ Subscribe sem autenticação');
             return response()->json(['success' => false, 'message' => 'Não autenticado'], 401);
         }
 
-        $validated = $request->validate([
-            'endpoint' => 'required|string',
-            'keys' => 'required|array',
-            'keys.p256dh' => 'required|string',
-            'keys.auth' => 'required|string',
-            'device_info' => 'nullable|string',
-        ]);
-
         try {
-            // Desativa subscrições antigas do mesmo endpoint
-            PushSubscription::where('user_id', auth()->id())
-                ->where('endpoint', $validated['endpoint'])
-                ->update(['is_active' => false]);
+            $validated = $request->validate([
+                'endpoint' => 'required|string',
+                'keys' => 'required|array',
+                'keys.p256dh' => 'required|string',
+                'keys.auth' => 'required|string',
+                'device_info' => 'nullable|string',
+            ]);
 
+            Log::info('✅ Validação passou', [
+                'endpoint' => $validated['endpoint'],
+                'has_keys' => isset($validated['keys']),
+            ]);
+
+            // Verifica se já existe uma subscription ativa para este user + endpoint
+            $existingSubscription = PushSubscription::where('user_id', auth()->id())
+                ->where('endpoint', $validated['endpoint'])
+                ->first();
+
+            if ($existingSubscription) {
+                Log::info('🔄 Subscription existente encontrada, atualizando...', [
+                    'subscription_id' => $existingSubscription->id,
+                    'is_active' => $existingSubscription->is_active,
+                ]);
+
+                // Atualiza a subscription existente
+                $existingSubscription->update([
+                    'public_key' => $validated['keys']['p256dh'],
+                    'auth_token' => $validated['keys']['auth'],
+                    'device_info' => $validated['device_info'] ?? $existingSubscription->device_info,
+                    'is_active' => true,
+                    'last_used_at' => now(),
+                ]);
+
+                Log::info('✅ Subscription atualizada com sucesso', [
+                    'subscription_id' => $existingSubscription->id,
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'subscription' => $existingSubscription->fresh()
+                ]);
+            }
+
+            // Se não existe, cria uma nova
             $subscription = PushSubscription::create([
                 'uuid' => Str::uuid(),
                 'user_id' => auth()->id(),
@@ -48,13 +86,36 @@ class PushNotificationController extends Controller
                 'last_used_at' => now(),
             ]);
 
+            Log::info('✅ Subscription criada com sucesso', [
+                'subscription_id' => $subscription->id,
+                'user_id' => $subscription->user_id,
+            ]);
+
             return response()->json([
                 'success' => true,
                 'subscription' => $subscription
             ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('❌ Erro de validação', [
+                'errors' => $e->errors(),
+                'input' => $request->all(),
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erro de validação',
+                'errors' => $e->errors()
+            ], 422);
         } catch (\Exception $e) {
-            \Log::error('Erro ao criar subscription', ['error' => $e->getMessage()]);
-            return response()->json(['success' => false, 'message' => 'Erro ao criar inscrição'], 500);
+            Log::error('❌ Erro ao criar subscription', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Erro ao criar inscrição: ' . $e->getMessage()
+            ], 500);
         }
     }
 
@@ -134,7 +195,6 @@ class PushNotificationController extends Controller
         }
 
         try {
-            // Verificar se usuário já clicou nesta notificação recentemente (últimos 5 minutos)
             $recentClick = PushNotificationClick::where('push_notification_id', $notification->id)
                 ->where('user_id', auth()->id())
                 ->where('clicked_at', '>', now()->subMinutes(5))

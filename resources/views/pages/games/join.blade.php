@@ -142,7 +142,12 @@ new class extends Component {
             $this->syncGameState();
             $this->dispatch('notify', type: 'success', text: 'Você entrou na arena!');
         } catch (\Exception $e) {
-            $this->dispatch('notify', type: 'error', text: 'Erro ao entrar na partida: ' . $e->getMessage());
+            \Log::error('Player join failed', [
+                'game_id' => $this->game->id,
+                'user_id' => auth()->id(),
+                'error' => $e->getMessage()
+            ]);
+            $this->dispatch('notify', type: 'error', text: 'Erro ao entrar na partida.');
         } finally {
             $this->isJoining = false;
         }
@@ -189,6 +194,11 @@ new class extends Component {
 
             $this->syncGameState();
         } catch (\Exception $e) {
+            \Log::error('Mark number failed', [
+                'card_id' => $card['id'],
+                'number' => $number,
+                'error' => $e->getMessage()
+            ]);
             $this->dispatch('notify', type: 'error', text: 'Erro ao marcar número.');
         }
     }
@@ -248,6 +258,11 @@ new class extends Component {
             broadcast(new GameUpdated($this->game))->toOthers();
             $this->dispatch('notify', type: 'success', text: $nextPrize ? 'Parabéns! Você ganhou: ' . $nextPrize->name : 'Bingo registrado!');
         } catch (\Exception $e) {
+            \Log::error('Auto claim prize failed', [
+                'card_id' => $card->id,
+                'game_id' => $this->game->id,
+                'error' => $e->getMessage()
+            ]);
             $this->dispatch('notify', type: 'error', text: 'Erro ao processar vitória.');
         }
     }

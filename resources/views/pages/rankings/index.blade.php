@@ -5,6 +5,7 @@ use Livewire\Component;
 use App\Models\Ranking\Rank;
 use App\Models\User;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Layout;
 
@@ -31,38 +32,50 @@ new #[Layout('layouts.app')] class extends Component {
     #[Computed]
     public function topRanking(): Collection
     {
-        $coluna = $this->papelContexto === 'jogador' 
-            ? match ($this->tipoRanking) { 
-                'semanal' => 'weekly_wins', 
-                'mensal' => 'monthly_wins', 
-                default => 'total_wins' 
+        try {
+            $coluna = $this->papelContexto === 'jogador' 
+                ? match ($this->tipoRanking) { 
+                    'semanal' => 'weekly_wins', 
+                    'mensal' => 'monthly_wins', 
+                    default => 'total_wins' 
+                }
+                : 'total_games_hosted'; 
+
+            $query = Rank::with(['user.titles'])
+                ->where($coluna, '>', 0);
+
+            if ($this->filtroRegiao !== 'todos' && $this->papelContexto === 'jogador') {
+                $query->whereHas('user', fn($q) => $q->where('state', $this->filtroRegiao));
             }
-            : 'total_games_hosted'; 
 
-        $query = Rank::with(['user.titles'])
-            ->where($coluna, '>', 0);
-
-        if ($this->filtroRegiao !== 'todos' && $this->papelContexto === 'jogador') {
-            $query->whereHas('user', fn($q) => $q->where('state', $this->filtroRegiao));
-        }
-
-        return $query->orderByDesc($coluna)
-            ->orderBy('total_games', 'asc')
-            ->take(100)
-            ->get()
-            ->map(fn($rank, $index) => [
-                'posicao' => $index + 1,
-                'usuario' => $rank->user,
-                'vitorias' => $rank->total_wins,
-                'criadas' => $rank->total_games_hosted ?? 0,
-                'partidas' => max($rank->total_games, $rank->total_wins),
-                'taxaVitoria' => max($rank->total_games, $rank->total_wins) > 0 
-                    ? ($rank->total_wins / max($rank->total_games, $rank->total_wins)) * 100 
-                    : 0,
-                'ehUsuarioAtual' => $rank->user_id === $this->usuario()->id,
-                'status' => $this->getStatusJogador($rank->total_wins, $rank->total_games),
-                'streak' => $rank->current_streak ?? 0,
+            return $query->orderByDesc($coluna)
+                ->orderBy('total_games', 'asc')
+                ->take(100)
+                ->get()
+                ->map(fn($rank, $index) => [
+                    'posicao' => $index + 1,
+                    'usuario' => $rank->user,
+                    'vitorias' => $rank->total_wins,
+                    'criadas' => $rank->total_games_hosted ?? 0,
+                    'partidas' => max($rank->total_games, $rank->total_wins),
+                    'taxaVitoria' => max($rank->total_games, $rank->total_wins) > 0 
+                        ? ($rank->total_wins / max($rank->total_games, $rank->total_wins)) * 100 
+                        : 0,
+                    'ehUsuarioAtual' => $rank->user_id === $this->usuario()->id,
+                    'status' => $this->getStatusJogador($rank->total_wins, $rank->total_games),
+                    'streak' => $rank->current_streak ?? 0,
+                ]);
+        } catch (\Exception $e) {
+            Log::error('Ranking load failed', [
+                'tipo_ranking' => $this->tipoRanking,
+                'papel_contexto' => $this->papelContexto,
+                'filtro_regiao' => $this->filtroRegiao,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
+
+            return collect();
+        }
     }
 
     private function getStatusJogador($vitorias, $partidas): array
@@ -77,46 +90,108 @@ new #[Layout('layouts.app')] class extends Component {
     #[Computed]
     public function estatisticasUsuario(): array
     {
-        $rank = Rank::where('user_id', $this->usuario()->id)->first();
-        $vitorias = $rank?->total_wins ?? 0;
-        $partidas = max($rank?->total_games ?? 0, $vitorias);
-        
-        return [
-            'vitorias' => $vitorias,
-            'partidas' => $partidas,
-            'taxa' => $partidas > 0 ? number_format(($vitorias / $partidas) * 100, 1) : '0.0',
-            'posicao' => $this->calcularPosicaoUsuario(),
-            'streak' => $rank?->current_streak ?? 0,
-            'melhorStreak' => $rank?->best_streak ?? 0,
-        ];
+        try {
+            $rank = Rank::where('user_id', $this->usuario()->id)->first();
+            $vitorias = $rank?->total_wins ?? 0;
+            $partidas = max($rank?->total_games ?? 0, $vitorias);
+            
+            return [
+                'vitorias' => $vitorias,
+                'partidas' => $partidas,
+                'taxa' => $partidas > 0 ? number_format(($vitorias / $partidas) * 100, 1) : '0.0',
+                'posicao' => $this->calcularPosicaoUsuario(),
+                'streak' => $rank?->current_streak ?? 0,
+                'melhorStreak' => $rank?->best_streak ?? 0,
+            ];
+        } catch (\Exception $e) {
+            Log::error('User stats load failed', [
+                'user_id' => $this->usuario()->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'vitorias' => 0,
+                'partidas' => 0,
+                'taxa' => '0.0',
+                'posicao' => null,
+                'streak' => 0,
+                'melhorStreak' => 0,
+            ];
+        }
     }
 
     private function calcularPosicaoUsuario(): ?int
     {
-        $coluna = match ($this->tipoRanking) { 
-            'semanal' => 'weekly_wins', 
-            'mensal' => 'monthly_wins', 
-            default => 'total_wins' 
-        };
-        $vitorias = Rank::where('user_id', $this->usuario()->id)->value($coluna);
-        if ($vitorias === null) return null;
-        return Rank::where($coluna, '>', $vitorias)->count() + 1;
+        try {
+            $coluna = match ($this->tipoRanking) { 
+                'semanal' => 'weekly_wins', 
+                'mensal' => 'monthly_wins', 
+                default => 'total_wins' 
+            };
+            $vitorias = Rank::where('user_id', $this->usuario()->id)->value($coluna);
+            if ($vitorias === null) return null;
+            return Rank::where($coluna, '>', $vitorias)->count() + 1;
+        } catch (\Exception $e) {
+            Log::error('User position calculation failed', [
+                'user_id' => $this->usuario()->id,
+                'tipo_ranking' => $this->tipoRanking,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
     }
 
     #[Computed]
     public function estatisticasGlobais(): array
     {
-        return [
-            'totalJogadores' => User::count(),
-            'jogadoresAtivos' => User::where('last_seen_at', '>=', now()->subDays(7))->count(),
-            'totalPartidas' => Rank::sum('total_games'),
-            'melhorStreak' => Rank::max('best_streak'),
-        ];
+        try {
+            return [
+                'totalJogadores' => User::count(),
+                'jogadoresAtivos' => User::where('last_seen_at', '>=', now()->subDays(7))->count(),
+                'totalPartidas' => Rank::sum('total_games'),
+                'melhorStreak' => Rank::max('best_streak'),
+            ];
+        } catch (\Exception $e) {
+            Log::error('Global stats load failed', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'totalJogadores' => 0,
+                'jogadoresAtivos' => 0,
+                'totalPartidas' => 0,
+                'melhorStreak' => 0,
+            ];
+        }
     }
 
-    public function abrirDossie($userId) {
-        $this->jogadorSelecionado = User::with(['titles', 'rank'])->find($userId);
-        $this->dispatch('notify', text: 'Dossiê carregado com sucesso.', type: 'info');
+    public function abrirDossie($userId)
+    {
+        try {
+            $this->jogadorSelecionado = User::with(['titles', 'rank'])->find($userId);
+            
+            if (!$this->jogadorSelecionado) {
+                Log::warning('Player dossier not found', ['user_id' => $userId]);
+                $this->dispatch('notify', text: 'Jogador não encontrado.', type: 'error');
+                return;
+            }
+
+            Log::info('Player dossier opened', [
+                'viewer_id' => $this->usuario()->id,
+                'target_user_id' => $userId,
+            ]);
+
+            $this->dispatch('notify', text: 'Dossiê carregado com sucesso.', type: 'info');
+        } catch (\Exception $e) {
+            Log::error('Dossier load failed', [
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            $this->dispatch('notify', text: 'Erro ao carregar dossiê.', type: 'error');
+        }
     }
 
     public function fecharDossie() { 

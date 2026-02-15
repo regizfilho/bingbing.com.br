@@ -3,6 +3,7 @@
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
@@ -16,10 +17,8 @@ new #[Layout('layouts.app')] class extends Component {
     public $uuid;
     public bool $isEditing = false;
 
-    // Foto de Perfil
     public $avatar;
 
-    // Propriedades do Formulário (Todos os campos restaurados)
     public $name;
     public $nickname;
     public $email;
@@ -31,7 +30,6 @@ new #[Layout('layouts.app')] class extends Component {
     public $state;
     public $bio;
 
-    // Segurança
     public $current_password;
     public $new_password;
     public $new_password_confirmation;
@@ -101,23 +99,53 @@ new #[Layout('layouts.app')] class extends Component {
     {
         $this->validate(['avatar' => 'image|max:1024']);
 
-        if ($this->player->avatar_path) {
-            Storage::disk('public')->delete($this->player->avatar_path);
+        try {
+            if ($this->player->avatar_path) {
+                Storage::disk('public')->delete($this->player->avatar_path);
+            }
+
+            $path = $this->avatar->store('avatars', 'public');
+            $this->player->update(['avatar_path' => $path]);
+
+            Log::info('Avatar updated', [
+                'user_id' => $this->player->id,
+                'path' => $path,
+            ]);
+
+            $this->dispatch('notify', text: 'Foto de perfil atualizada com sucesso!', type: 'success');
+        } catch (\Exception $e) {
+            Log::error('Avatar update failed', [
+                'user_id' => $this->player->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            $this->dispatch('notify', text: 'Erro ao atualizar foto de perfil.', type: 'error');
         }
-
-        $path = $this->avatar->store('avatars', 'public');
-        $this->player->update(['avatar_path' => $path]);
-
-        $this->dispatch('notify', text: 'Foto de perfil atualizada com sucesso!', type: 'success');
     }
 
     public function removeAvatar()
     {
-        if ($this->player->avatar_path) {
-            Storage::disk('public')->delete($this->player->avatar_path);
-            $this->player->update(['avatar_path' => null]);
-            $this->avatar = null;
-            $this->dispatch('notify', text: 'Foto de perfil removida.', type: 'info');
+        try {
+            if ($this->player->avatar_path) {
+                Storage::disk('public')->delete($this->player->avatar_path);
+                $this->player->update(['avatar_path' => null]);
+                $this->avatar = null;
+
+                Log::info('Avatar removed', [
+                    'user_id' => $this->player->id,
+                ]);
+
+                $this->dispatch('notify', text: 'Foto de perfil removida.', type: 'info');
+            }
+        } catch (\Exception $e) {
+            Log::error('Avatar removal failed', [
+                'user_id' => $this->player->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            $this->dispatch('notify', text: 'Erro ao remover foto de perfil.', type: 'error');
         }
     }
 
@@ -135,21 +163,36 @@ new #[Layout('layouts.app')] class extends Component {
             'instagram' => ['nullable', 'string', 'max:100'],
         ]);
 
-        $this->player->update([
-            'name' => $this->name,
-            'nickname' => $this->nickname,
-            'email' => $this->email,
-            'phone_number' => $this->phone_number,
-            'gender' => $this->gender,
-            'birth_date' => $this->birth_date,
-            'instagram' => $this->instagram,
-            'city' => $this->city,
-            'state' => $this->state,
-            'bio' => $this->bio,
-        ]);
+        try {
+            $this->player->update([
+                'name' => $this->name,
+                'nickname' => $this->nickname,
+                'email' => $this->email,
+                'phone_number' => $this->phone_number,
+                'gender' => $this->gender,
+                'birth_date' => $this->birth_date,
+                'instagram' => $this->instagram,
+                'city' => $this->city,
+                'state' => $this->state,
+                'bio' => $this->bio,
+            ]);
 
-        $this->isEditing = false;
-        $this->dispatch('notify', text: 'Perfil atualizado com sucesso!', type: 'success');
+            Log::info('Profile updated', [
+                'user_id' => $this->player->id,
+                'updated_fields' => ['name', 'nickname', 'email', 'phone_number', 'gender', 'birth_date', 'instagram', 'city', 'state', 'bio'],
+            ]);
+
+            $this->isEditing = false;
+            $this->dispatch('notify', text: 'Perfil atualizado com sucesso!', type: 'success');
+        } catch (\Exception $e) {
+            Log::error('Profile update failed', [
+                'user_id' => $this->player->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            $this->dispatch('notify', text: 'Erro ao atualizar perfil.', type: 'error');
+        }
     }
 
     public function updatePassword()
@@ -159,11 +202,27 @@ new #[Layout('layouts.app')] class extends Component {
             'new_password' => ['required', 'min:8', 'confirmed'],
         ]);
 
-        Auth::user()->update(['password' => Hash::make($this->new_password)]);
-        $this->reset(['current_password', 'new_password', 'new_password_confirmation']);
-        $this->dispatch('notify', text: 'Sua senha foi alterada com segurança!', type: 'success');
+        try {
+            Auth::user()->update(['password' => Hash::make($this->new_password)]);
+            $this->reset(['current_password', 'new_password', 'new_password_confirmation']);
+
+            Log::info('Password updated', [
+                'user_id' => Auth::id(),
+            ]);
+
+            $this->dispatch('notify', text: 'Sua senha foi alterada com segurança!', type: 'success');
+        } catch (\Exception $e) {
+            Log::error('Password update failed', [
+                'user_id' => Auth::id(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            $this->dispatch('notify', text: 'Erro ao alterar senha.', type: 'error');
+        }
     }
-}; ?>
+};
+?>
 
 <div class="min-h-screen bg-[#05070a] text-slate-200 pb-20 selection:bg-blue-500/30 relative">
     
