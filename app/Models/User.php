@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Notifications\ResetPasswordNotification;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -41,12 +42,12 @@ class User extends Authenticatable
         'banned_by',
         'is_verified'
     ];
-    
+
     protected $hidden = [
-        'password', 
+        'password',
         'remember_token'
     ];
-    
+
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
@@ -69,17 +70,34 @@ class User extends Authenticatable
     }
 
     // Relacionamentos
-    public function wallet() { return $this->hasOne(Wallet::class); }
-    public function rank() { return $this->hasOne(Rank::class); }
-    public function titles() { return $this->hasMany(Title::class); }
-    public function wins() { return $this->hasMany(Winner::class); }
-    public function players() { return $this->hasMany(Player::class); }
-    
-    public function createdGames() { 
-        return $this->hasMany(Game::class, 'creator_id'); 
+    public function wallet()
+    {
+        return $this->hasOne(Wallet::class);
+    }
+    public function rank()
+    {
+        return $this->hasOne(Rank::class);
+    }
+    public function titles()
+    {
+        return $this->hasMany(Title::class);
+    }
+    public function wins()
+    {
+        return $this->hasMany(Winner::class);
+    }
+    public function players()
+    {
+        return $this->hasMany(Player::class);
     }
 
-    public function playedGames() {
+    public function createdGames()
+    {
+        return $this->hasMany(Game::class, 'creator_id');
+    }
+
+    public function playedGames()
+    {
         return $this->hasManyThrough(Game::class, Player::class, 'user_id', 'id', 'id', 'game_id');
     }
 
@@ -117,5 +135,16 @@ class User extends Authenticatable
         ]);
     }
 
-    public function getRouteKeyName() { return 'uuid'; }
+    public function getRouteKeyName()
+    {
+        return 'uuid';
+    }
+
+    /**
+     * Send the password reset notification.
+     */
+    public function sendPasswordResetNotification($token)
+    {
+        $this->notify(new ResetPasswordNotification($token));
+    }
 }

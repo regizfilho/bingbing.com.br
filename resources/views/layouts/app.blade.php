@@ -97,6 +97,8 @@
             scrollbar-width: none;
         }
     </style>
+
+    <x-cookie />
 </body>
 
 </html>

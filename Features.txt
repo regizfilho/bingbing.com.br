@@ -29,6 +29,6 @@ Também deixei em formato mais técnico, pensando em arquitetura limpa (sei que 
 
 
 
--------
-
-GIF CArd
+---------------------------------------
+Adicionar SOM, voz.
+Ajustar tela display

@@ -10,12 +10,32 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 new #[Layout('layouts.app')] class extends Component {
+    public ?string $param = null; // Parâmetro da URL (success, cancel, etc)
+    
     public ?int $selectedPackageId = null;
     public bool $showConfirmation = false;
 
     public string $couponCode = '';
     public ?Coupon $appliedCoupon = null;
     public float $discountAmount = 0;
+
+    public function mount(?string $param = null): void
+    {
+        $this->param = $param;
+        
+        // Mostrar mensagem de sucesso se vier do Stripe
+        if ($param === 'success') {
+            $this->dispatch('notify', 
+                type: 'success', 
+                text: '🎉 Pagamento confirmado! Seus créditos foram adicionados à sua carteira.'
+            );
+        } elseif ($param === 'cancel') {
+            $this->dispatch('notify', 
+                type: 'warning', 
+                text: 'Pagamento cancelado. Você pode tentar novamente quando quiser.'
+            );
+        }
+    }
 
     #[Computed]
     public function user()
@@ -192,6 +212,9 @@ new #[Layout('layouts.app')] class extends Component {
                     $this->appliedCoupon->increment('used_count');
                 }
 
+                // Enviar email de confirmação
+                $this->user->notify(new \App\Notifications\CreditPurchaseNotification($transaction));
+
                 // Notificação Push
                 $pushService = app(\App\Services\PushNotificationService::class);
                 
@@ -219,6 +242,7 @@ new #[Layout('layouts.app')] class extends Component {
             if ($this->discountAmount > 0) {
                 $message .= " com desconto de R$ " . number_format($this->discountAmount, 2, ',', '.');
             }
+            $message .= ". Verifique seu email!";
 
             $this->dispatch('notify', type: 'success', text: $message);
             $this->cancelPurchase();
@@ -228,6 +252,8 @@ new #[Layout('layouts.app')] class extends Component {
     }
 };
 ?>
+
+{{-- O resto do HTML permanece igual, apenas adicione um banner de sucesso opcional --}}
 
 <div class="min-h-screen bg-[#05070a] text-slate-200 pb-24 selection:bg-blue-500/30 overflow-x-hidden relative">
 
@@ -241,6 +267,53 @@ new #[Layout('layouts.app')] class extends Component {
     </div>
 
     <div class="max-w-6xl mx-auto px-6 pt-16">
+
+        {{-- Banner de Sucesso (aparece apenas quando param=success) --}}
+        @if($param === 'success')
+            <div class="mb-12 animate-in fade-in slide-in-from-top duration-500" x-data="{ show: true }" x-show="show">
+                <div class="relative bg-gradient-to-r from-emerald-600/10 to-emerald-500/10 border border-emerald-500/30 rounded-3xl p-8 overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-600 to-emerald-400"></div>
+                    
+                    <button @click="show = false" class="absolute top-4 right-4 text-emerald-400 hover:text-white transition">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+
+                    <div class="flex items-start gap-6">
+                        <div class="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center flex-shrink-0 text-4xl">
+                            🎉
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="text-2xl font-black text-emerald-400 uppercase italic mb-2">
+                                Pagamento Confirmado!
+                            </h3>
+                            <p class="text-sm text-slate-300 leading-relaxed mb-4">
+                                Sua compra foi processada com sucesso e os créditos já estão disponíveis na sua carteira. 
+                                Enviamos um email de confirmação com todos os detalhes da transação.
+                            </p>
+                            <div class="flex flex-wrap gap-3">
+                                <a href="{{ route('games.create') }}" 
+                                    class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    Começar a Jogar
+                                </a>
+                                <a href="{{ route('wallet.transactions') }}" 
+                                    class="inline-flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                    </svg>
+                                    Ver Extrato
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
 
         {{-- Cabeçalho --}}
         <div class="flex flex-col md:flex-row md:items-end justify-between mb-16 gap-8">
@@ -256,14 +329,16 @@ new #[Layout('layouts.app')] class extends Component {
                 </h1>
             </div>
 
-            <div class="flex items-center gap-6 bg-white/[0.02] border border-white/5 p-4 rounded-3xl backdrop-blur-md shadow-2xl">
+            <div
+                class="flex items-center gap-6 bg-white/[0.02] border border-white/5 p-4 rounded-3xl backdrop-blur-md shadow-2xl">
                 <div class="text-right">
                     <p class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic leading-none mb-1">
                         Status da Conta
                     </p>
                     <p class="text-[11px] font-black text-emerald-500 uppercase italic">Conectado com Segurança</p>
                 </div>
-                <div class="w-12 h-12 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center text-xl shadow-lg">
+                <div
+                    class="w-12 h-12 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-center text-xl shadow-lg">
                     ✅
                 </div>
             </div>
@@ -271,12 +346,16 @@ new #[Layout('layouts.app')] class extends Component {
 
         {{-- Card de Saldo Principal --}}
         <div class="relative mb-16 group">
-            <div class="absolute -inset-0.5 bg-gradient-to-r from-blue-600/50 to-cyan-500/50 rounded-[3.5rem] blur opacity-20 transition duration-1000"></div>
+            <div
+                class="absolute -inset-0.5 bg-gradient-to-r from-blue-600/50 to-cyan-500/50 rounded-[3.5rem] blur opacity-20 transition duration-1000">
+            </div>
 
-            <div class="relative bg-[#0b0d11] border border-white/5 rounded-[3.5rem] p-10 md:p-16 shadow-2xl overflow-hidden">
+            <div
+                class="relative bg-[#0b0d11] border border-white/5 rounded-[3.5rem] p-10 md:p-16 shadow-2xl overflow-hidden">
                 <div class="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
                     <div class="space-y-6">
-                        <div class="inline-flex items-center px-4 py-2 bg-blue-600/10 border border-blue-500/20 rounded-full">
+                        <div
+                            class="inline-flex items-center px-4 py-2 bg-blue-600/10 border border-blue-500/20 rounded-full">
                             <span class="text-[9px] font-black text-blue-400 uppercase tracking-widest italic">
                                 Saldo Disponível para Uso
                             </span>
@@ -284,13 +363,14 @@ new #[Layout('layouts.app')] class extends Component {
 
                         <div class="flex items-start gap-4">
                             <span class="text-4xl font-black text-blue-600 italic mt-2 font-mono">C$</span>
-                            <span class="text-8xl md:text-9xl font-black text-white tracking-tighter italic leading-none tabular-nums">
+                            <span
+                                class="text-8xl md:text-9xl font-black text-white tracking-tighter italic leading-none tabular-nums">
                                 {{ number_format($this->walletBalance, 0, ',', '.') }}
                             </span>
                         </div>
 
                         <div class="w-full h-2 bg-white/5 rounded-full overflow-hidden shadow-inner">
-                            <div class="h-full bg-gradient-to-r from-blue-600 to-cyan-400 transition-all duration-1000" 
+                            <div class="h-full bg-gradient-to-r from-blue-600 to-cyan-400 transition-all duration-1000"
                                 style="width: {{ min(($this->walletBalance / 1000) * 100, 100) }}%">
                             </div>
                         </div>
@@ -325,37 +405,43 @@ new #[Layout('layouts.app')] class extends Component {
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-white/[0.03] border border-white/5 p-6 rounded-[2.5rem] backdrop-blur-sm shadow-xl">
+                        <div
+                            class="bg-white/[0.03] border border-white/5 p-6 rounded-[2.5rem] backdrop-blur-sm shadow-xl">
                             <p class="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-4 italic">
                                 Conexão
                             </p>
                             <div class="flex items-center gap-3">
-                                <span class="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_#3b82f6] animate-pulse"></span>
-                                <span class="text-[10px] font-black text-white uppercase italic tracking-widest leading-none">
+                                <span
+                                    class="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_#3b82f6] animate-pulse"></span>
+                                <span
+                                    class="text-[10px] font-black text-white uppercase italic tracking-widest leading-none">
                                     Protegida
                                 </span>
                             </div>
                         </div>
-                        <div class="bg-white/[0.03] border border-white/5 p-6 rounded-[2.5rem] backdrop-blur-sm shadow-xl">
+                        <div
+                            class="bg-white/[0.03] border border-white/5 p-6 rounded-[2.5rem] backdrop-blur-sm shadow-xl">
                             <p class="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-4 italic">
                                 Processamento
                             </p>
                             <div class="flex items-center gap-3">
-                                <span class="w-2 h-2 bg-cyan-500 rounded-full shadow-[0_0_8px_#06b6d4] animate-pulse"></span>
-                                <span class="text-[10px] font-black text-white uppercase italic tracking-widest leading-none">
+                                <span
+                                    class="w-2 h-2 bg-cyan-500 rounded-full shadow-[0_0_8px_#06b6d4] animate-pulse"></span>
+                                <span
+                                    class="text-[10px] font-black text-white uppercase italic tracking-widest leading-none">
                                     Imediato
                                 </span>
                             </div>
                         </div>
-                        <div class="col-span-2 bg-white/[0.03] border border-white/5 p-6 rounded-[2.5rem] backdrop-blur-sm shadow-xl">
+                        <div
+                            class="col-span-2 bg-white/[0.03] border border-white/5 p-6 rounded-[2.5rem] backdrop-blur-sm shadow-xl">
                             <p class="text-[9px] font-black text-slate-600 uppercase tracking-widest mb-3 italic">
                                 Última Atividade
                             </p>
                             <div class="text-[10px] font-black text-white uppercase italic">
-                                {{ $this->walletStats['last_transaction'] 
-                                    ? $this->walletStats['last_transaction']->created_at->diffForHumans() 
-                                    : 'Nenhuma transação ainda' 
-                                }}
+                                {{ $this->walletStats['last_transaction']
+                                    ? $this->walletStats['last_transaction']->created_at->diffForHumans()
+                                    : 'Nenhuma transação ainda' }}
                             </div>
                         </div>
                     </div>
@@ -367,7 +453,8 @@ new #[Layout('layouts.app')] class extends Component {
         <a href="{{ route('wallet.gift') }}"
             class="group bg-[#0b0d11] border border-white/5 p-10 rounded-[2.5rem] flex items-center justify-between transition-all hover:bg-purple-600/[0.02] hover:border-purple-500/30 shadow-xl mb-16">
             <div class="flex items-center gap-6">
-                <div class="w-16 h-16 bg-purple-500/10 rounded-2xl flex items-center justify-center text-3xl shadow-inner group-hover:scale-110 transition-transform">
+                <div
+                    class="w-16 h-16 bg-purple-500/10 rounded-2xl flex items-center justify-center text-3xl shadow-inner group-hover:scale-110 transition-transform">
                     🎁
                 </div>
                 <div>
@@ -379,7 +466,8 @@ new #[Layout('layouts.app')] class extends Component {
             </div>
             <div class="text-slate-700 group-hover:text-purple-500 transition-colors">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
+                        d="M14 5l7 7m0 0l-7 7m7-7H3" />
                 </svg>
             </div>
         </a>
@@ -399,18 +487,22 @@ new #[Layout('layouts.app')] class extends Component {
                         class="group relative bg-[#0b0d11] border border-white/5 rounded-[3rem] p-10 cursor-pointer transition-all duration-500 hover:border-blue-500/40 hover:-translate-y-4 shadow-2xl overflow-hidden">
 
                         {{-- Badge de melhor valor --}}
-                        @if($package->credits >= 1000)
-                            <div class="absolute top-4 right-4 px-3 py-1 bg-yellow-500/20 border border-yellow-500/30 rounded-full">
+                        @if ($package->credits >= 1000)
+                            <div
+                                class="absolute top-4 right-4 px-3 py-1 bg-yellow-500/20 border border-yellow-500/30 rounded-full">
                                 <span class="text-[8px] font-black text-yellow-400 uppercase tracking-wider">
                                     ⭐ Melhor Valor
                                 </span>
                             </div>
                         @endif
 
-                        <div class="absolute inset-0 bg-gradient-to-b from-blue-600/[0.03] to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        <div
+                            class="absolute inset-0 bg-gradient-to-b from-blue-600/[0.03] to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                        </div>
 
                         <div class="relative z-10 flex flex-col items-center">
-                            <div class="w-24 h-24 bg-white/[0.02] border border-white/5 rounded-3xl mb-10 flex items-center justify-center text-4xl shadow-inner group-hover:scale-110 group-hover:bg-blue-600/10 transition-all duration-500">
+                            <div
+                                class="w-24 h-24 bg-white/[0.02] border border-white/5 rounded-3xl mb-10 flex items-center justify-center text-4xl shadow-inner group-hover:scale-110 group-hover:bg-blue-600/10 transition-all duration-500">
                                 @if ($package->credits >= 5000)
                                     💎
                                 @elseif($package->credits >= 1000)
@@ -420,11 +512,13 @@ new #[Layout('layouts.app')] class extends Component {
                                 @endif
                             </div>
 
-                            <span class="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] mb-2 italic group-hover:text-blue-500 transition-colors">
+                            <span
+                                class="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] mb-2 italic group-hover:text-blue-500 transition-colors">
                                 {{ $package->name }}
                             </span>
 
-                            <div class="flex items-baseline gap-2 mb-10 group-hover:scale-110 transition-transform duration-500">
+                            <div
+                                class="flex items-baseline gap-2 mb-10 group-hover:scale-110 transition-transform duration-500">
                                 <span class="text-6xl font-black text-white italic tracking-tighter">
                                     {{ number_format($package->credits, 0, ',', '.') }}
                                 </span>
@@ -441,14 +535,16 @@ new #[Layout('layouts.app')] class extends Component {
                                     </span>
                                 </div>
 
-                                <button class="w-full h-16 bg-white/[0.03] border border-white/5 group-hover:bg-blue-600 group-hover:border-blue-500 rounded-2xl text-[10px] font-black uppercase tracking-[0.4em] text-white transition-all shadow-xl italic">
+                                <button
+                                    class="w-full h-16 bg-white/[0.03] border border-white/5 group-hover:bg-blue-600 group-hover:border-blue-500 rounded-2xl text-[10px] font-black uppercase tracking-[0.4em] text-white transition-all shadow-xl italic">
                                     RECARREGAR AGORA
                                 </button>
                             </div>
                         </div>
                     </div>
                 @empty
-                    <div class="col-span-full py-24 bg-white/[0.01] rounded-[4rem] border border-dashed border-white/5 flex flex-col items-center justify-center opacity-50">
+                    <div
+                        class="col-span-full py-24 bg-white/[0.01] rounded-[4rem] border border-dashed border-white/5 flex flex-col items-center justify-center opacity-50">
                         <span class="text-6xl mb-6">📦</span>
                         <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">
                             Nenhum pacote disponível no momento.
@@ -463,7 +559,8 @@ new #[Layout('layouts.app')] class extends Component {
             <a href="{{ route('wallet.transactions') }}"
                 class="group bg-[#0b0d11] border border-white/5 p-10 rounded-[2.5rem] flex items-center justify-between transition-all hover:bg-blue-600/[0.02] hover:border-blue-500/30 shadow-xl">
                 <div class="flex items-center gap-6">
-                    <div class="w-16 h-16 bg-white/[0.03] rounded-2xl flex items-center justify-center text-3xl shadow-inner group-hover:scale-110 transition-transform">
+                    <div
+                        class="w-16 h-16 bg-white/[0.03] rounded-2xl flex items-center justify-center text-3xl shadow-inner group-hover:scale-110 transition-transform">
                         📜
                     </div>
                     <div>
@@ -475,7 +572,8 @@ new #[Layout('layouts.app')] class extends Component {
                 </div>
                 <div class="text-slate-700 group-hover:text-blue-500 transition-colors">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
+                            d="M14 5l7 7m0 0l-7 7m7-7H3" />
                     </svg>
                 </div>
             </a>
@@ -483,7 +581,8 @@ new #[Layout('layouts.app')] class extends Component {
             <a href="{{ route('dashboard') }}"
                 class="group bg-[#0b0d11] border border-white/5 p-10 rounded-[2.5rem] flex items-center justify-between transition-all hover:bg-blue-600/[0.02] hover:border-blue-500/30 shadow-xl">
                 <div class="flex items-center gap-6">
-                    <div class="w-16 h-16 bg-white/[0.03] rounded-2xl flex items-center justify-center text-3xl shadow-inner group-hover:scale-110 transition-transform">
+                    <div
+                        class="w-16 h-16 bg-white/[0.03] rounded-2xl flex items-center justify-center text-3xl shadow-inner group-hover:scale-110 transition-transform">
                         🏠
                     </div>
                     <div>
@@ -495,7 +594,8 @@ new #[Layout('layouts.app')] class extends Component {
                 </div>
                 <div class="text-slate-700 group-hover:text-blue-500 transition-colors">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
+                            d="M14 5l7 7m0 0l-7 7m7-7H3" />
                     </svg>
                 </div>
             </a>
@@ -505,14 +605,17 @@ new #[Layout('layouts.app')] class extends Component {
     {{-- Modal de Confirmação --}}
     @if ($showConfirmation && $this->selectedPackage)
         <div class="fixed inset-0 z-[100] flex items-center justify-center p-6">
-            <div class="absolute inset-0 bg-[#05070a]/90 backdrop-blur-2xl animate-in fade-in" wire:click="cancelPurchase"></div>
+            <div class="absolute inset-0 bg-[#05070a]/90 backdrop-blur-2xl animate-in fade-in"
+                wire:click="cancelPurchase"></div>
 
-            <div class="relative bg-[#0b0d11] w-full max-w-lg rounded-[4rem] border border-blue-600/30 overflow-hidden shadow-[0_0_150px_rgba(37,99,235,0.2)] animate-in zoom-in duration-300">
+            <div
+                class="relative bg-[#0b0d11] w-full max-w-lg rounded-[4rem] border border-blue-600/30 overflow-hidden shadow-[0_0_150px_rgba(37,99,235,0.2)] animate-in zoom-in duration-300">
                 <div class="h-1.5 bg-gradient-to-r from-blue-600 to-cyan-400"></div>
 
                 <div class="p-12 sm:p-16">
                     <div class="text-center mb-12">
-                        <div class="w-24 h-24 bg-blue-600/10 border border-blue-500/30 rounded-[2.5rem] mx-auto flex items-center justify-center text-5xl mb-8 shadow-inner">
+                        <div
+                            class="w-24 h-24 bg-blue-600/10 border border-blue-500/30 rounded-[2.5rem] mx-auto flex items-center justify-center text-5xl mb-8 shadow-inner">
                             💰
                         </div>
                         <h3 class="text-3xl font-black text-white uppercase italic tracking-tighter">
@@ -525,19 +628,22 @@ new #[Layout('layouts.app')] class extends Component {
 
                     <div class="bg-white/[0.02] border border-white/5 rounded-[3rem] p-8 mb-10 space-y-6 shadow-inner">
                         <div class="flex justify-between items-center border-b border-white/5 pb-6">
-                            <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Produto</span>
+                            <span
+                                class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Produto</span>
                             <span class="text-xs font-black text-white uppercase italic tracking-widest">
                                 {{ $this->selectedPackage->name }}
                             </span>
                         </div>
                         <div class="flex justify-between items-center border-b border-white/5 pb-6">
-                            <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Créditos</span>
+                            <span
+                                class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Créditos</span>
                             <span class="text-3xl font-black text-blue-500 italic">
                                 +{{ number_format($this->selectedPackage->credits, 0, ',', '.') }}
                             </span>
                         </div>
                         <div class="flex justify-between items-center">
-                            <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Valor Original</span>
+                            <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Valor
+                                Original</span>
                             <span class="text-2xl font-black text-white italic tracking-tighter">
                                 R$ {{ number_format($this->selectedPackage->price_brl, 2, ',', '.') }}
                             </span>
@@ -546,12 +652,14 @@ new #[Layout('layouts.app')] class extends Component {
 
                     {{-- Cupom --}}
                     <div class="space-y-4 mb-6">
-                        @if(!$appliedCoupon)
+                        @if (!$appliedCoupon)
                             <div class="relative">
-                                <input type="text" wire:model.defer="couponCode" placeholder="Digite seu cupom (opcional)"
+                                <input type="text" wire:model.defer="couponCode"
+                                    placeholder="Digite seu cupom (opcional)"
                                     class="w-full h-14 bg-white/[0.02] border border-white/5 rounded-2xl px-6 text-xs font-black uppercase tracking-[0.3em] italic text-white focus:border-blue-500 outline-none transition-all @error('couponCode') border-red-500/50 @enderror">
                                 @error('couponCode')
-                                    <p class="text-red-400 text-[8px] font-bold uppercase tracking-wider mt-2">{{ $message }}</p>
+                                    <p class="text-red-400 text-[8px] font-bold uppercase tracking-wider mt-2">
+                                        {{ $message }}</p>
                                 @enderror
                             </div>
 
@@ -566,17 +674,21 @@ new #[Layout('layouts.app')] class extends Component {
                                     <div class="flex items-center gap-3">
                                         <span class="text-2xl">🎫</span>
                                         <div>
-                                            <p class="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Cupom Aplicado</p>
-                                            <p class="text-sm font-black text-white uppercase italic mt-1">{{ $appliedCoupon->code }}</p>
+                                            <p
+                                                class="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                                                Cupom Aplicado</p>
+                                            <p class="text-sm font-black text-white uppercase italic mt-1">
+                                                {{ $appliedCoupon->code }}</p>
                                         </div>
                                     </div>
-                                    <button wire:click="removeCoupon" 
+                                    <button wire:click="removeCoupon"
                                         class="text-red-400 hover:text-red-300 transition text-xs font-bold">
                                         Remover
                                     </button>
                                 </div>
                                 <div class="flex justify-between items-center pt-4 border-t border-emerald-500/20">
-                                    <span class="text-[9px] font-black text-emerald-400 uppercase tracking-widest italic">Desconto</span>
+                                    <span
+                                        class="text-[9px] font-black text-emerald-400 uppercase tracking-widest italic">Desconto</span>
                                     <span class="text-2xl font-black text-emerald-400 italic">
                                         -R$ {{ number_format($discountAmount, 2, ',', '.') }}
                                     </span>
@@ -585,7 +697,9 @@ new #[Layout('layouts.app')] class extends Component {
 
                             <div class="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-6">
                                 <div class="flex justify-between items-center">
-                                    <span class="text-[10px] font-black text-blue-400 uppercase tracking-widest italic">Total a Pagar</span>
+                                    <span
+                                        class="text-[10px] font-black text-blue-400 uppercase tracking-widest italic">Total
+                                        a Pagar</span>
                                     <span class="text-4xl font-black text-white italic tracking-tighter">
                                         R$ {{ number_format($this->finalPrice, 2, ',', '.') }}
                                     </span>

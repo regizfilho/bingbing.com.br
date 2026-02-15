@@ -11,14 +11,13 @@
     <div class="min-h-screen flex flex-col lg:flex-row">
 
         {{-- SIDEBAR --}}
-        <aside 
-            x-data="{ mobileOpen: false }"
-            class="lg:w-72 flex-shrink-0 bg-[#0a0c12] border-b lg:border-b-0 lg:border-r border-white/5 flex flex-col lg:sticky lg:top-0 lg:h-screen"
-        >
+        <aside x-data="{ mobileOpen: false }"
+            class="lg:w-72 flex-shrink-0 bg-[#0a0c12] border-b lg:border-b-0 lg:border-r border-white/5 flex flex-col lg:sticky lg:top-0 lg:h-screen">
             {{-- Header Sidebar - Mobile Toggle --}}
             <div class="h-16 lg:h-20 flex items-center justify-between px-6 border-b border-white/5">
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-2xl flex items-center justify-center font-black text-white text-sm shadow-xl">
+                    <div
+                        class="w-10 h-10 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-2xl flex items-center justify-center font-black text-white text-sm shadow-xl">
                         B²
                     </div>
                     <div>
@@ -30,25 +29,23 @@
                 </div>
 
                 {{-- Mobile Menu Toggle --}}
-                <button 
-                    @click="mobileOpen = !mobileOpen"
-                    class="lg:hidden w-10 h-10 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center text-white hover:bg-white/10 transition-all"
-                >
+                <button @click="mobileOpen = !mobileOpen"
+                    class="lg:hidden w-10 h-10 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center text-white hover:bg-white/10 transition-all">
                     <svg x-show="!mobileOpen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
-                    <svg x-show="mobileOpen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display: none;">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    <svg x-show="mobileOpen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                        style="display: none;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
 
             {{-- Navigation - Desktop sempre visível, Mobile togglable --}}
-            <nav 
-                x-show="mobileOpen || window.innerWidth >= 1024"
-                x-cloak
-                class="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar"
-            >
+            <nav x-show="mobileOpen || window.innerWidth >= 1024" x-cloak
+                class="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
                 {{-- Gestão --}}
                 <div>
                     <h3 class="px-2 text-[9px] font-black text-slate-600 uppercase tracking-[0.2em] mb-4 italic">
@@ -117,11 +114,13 @@
             {{-- Footer Sidebar --}}
             <div class="p-6 border-t border-white/5 bg-black/20">
                 <div class="flex items-center gap-3">
-                    <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 border border-blue-500/20 overflow-hidden flex items-center justify-center font-black text-white text-sm shadow-xl">
+                    <div
+                        class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 border border-blue-500/20 overflow-hidden flex items-center justify-center font-black text-white text-sm shadow-xl">
                         {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
                     </div>
                     <div class="flex-1 min-w-0">
-                        <p class="text-sm font-black text-white truncate uppercase italic">{{ auth()->user()->name }}</p>
+                        <p class="text-sm font-black text-white truncate uppercase italic">{{ auth()->user()->name }}
+                        </p>
                         <p class="text-[9px] text-slate-500 uppercase tracking-widest font-black">Administrador</p>
                     </div>
                 </div>
@@ -132,7 +131,8 @@
         <main class="flex-1 flex flex-col bg-[#05070a] min-h-screen">
 
             {{-- Topbar --}}
-            <header class="h-16 lg:h-20 border-b border-white/5 flex items-center justify-between px-4 lg:px-8 bg-[#0a0c12]/80 backdrop-blur-md sticky top-0 z-10">
+            <header
+                class="h-16 lg:h-20 border-b border-white/5 flex items-center justify-between px-4 lg:px-8 bg-[#0a0c12]/80 backdrop-blur-md sticky top-0 z-10">
                 <div class="flex items-center gap-3 lg:gap-4 text-xs font-black uppercase italic text-slate-500">
                     <span>Admin</span>
                     <span class="text-slate-700">/</span>
@@ -143,31 +143,36 @@
                     <a href="{{ route('dashboard') }}"
                         class="hidden lg:flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-black uppercase italic text-slate-400 hover:text-white hover:border-white/20 transition-all">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                         </svg>
                         Arena
                     </a>
-                    
+
                     {{-- Mobile: Apenas ícone --}}
                     <a href="{{ route('dashboard') }}"
                         class="lg:hidden w-10 h-10 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center text-slate-400 hover:text-white transition-all">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                         </svg>
                     </a>
 
                     <div class="h-6 w-[1px] bg-white/10"></div>
-                    
+
                     <form method="POST" action="{{ route('logout') }}">
                         @csrf
-                        <button class="hidden lg:block px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-xl text-xs font-black text-red-500 hover:bg-red-500/20 hover:border-red-500/30 transition-all uppercase italic">
+                        <button
+                            class="hidden lg:block px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-xl text-xs font-black text-red-500 hover:bg-red-500/20 hover:border-red-500/30 transition-all uppercase italic">
                             Deslogar
                         </button>
-                        
+
                         {{-- Mobile: Apenas ícone --}}
-                        <button class="lg:hidden w-10 h-10 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center justify-center text-red-500 hover:bg-red-500/20 transition-all">
+                        <button
+                            class="lg:hidden w-10 h-10 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center justify-center text-red-500 hover:bg-red-500/20 transition-all">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                             </svg>
                         </button>
                     </form>
@@ -184,7 +189,8 @@
                                 Painel de Controle
                             </span>
                         </div>
-                        <h1 class="text-4xl lg:text-6xl font-black text-white tracking-tighter uppercase italic leading-none">
+                        <h1
+                            class="text-4xl lg:text-6xl font-black text-white tracking-tighter uppercase italic leading-none">
                             {{ $header }}
                         </h1>
                         <p class="text-sm text-slate-500 mt-3 italic">Gestão e controle do ecossistema BingBing.</p>
@@ -203,13 +209,16 @@
         .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
         }
+
         .custom-scrollbar::-webkit-scrollbar-track {
             background: #0a0c12;
         }
+
         .custom-scrollbar::-webkit-scrollbar-thumb {
             background: #374151;
             border-radius: 3px;
         }
+
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #4b5563;
         }
@@ -218,6 +227,8 @@
             display: none !important;
         }
     </style>
+
+    <x-cookie />
 </body>
 
 </html>

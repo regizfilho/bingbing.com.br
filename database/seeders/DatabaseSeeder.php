@@ -22,11 +22,11 @@ class DatabaseSeeder extends Seeder
         ]);
 
         $user = User::updateOrCreate(
-            ['email' => 'reginaldo@reginaldo.com'],
+            ['email' => 'reegidev@gmail.com'],
             [
                 'name' => 'Reginaldo',
                 'nickname' => 'RegiMaster',
-                'password' => Hash::make('scrolllock'),
+                'password' => Hash::make('Scrolllock@2468'),
                 'role' => 'admin',
                 'status' => 'active',
                 'birth_date' => '1990-01-01',

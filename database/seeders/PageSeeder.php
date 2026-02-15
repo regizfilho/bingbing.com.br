@@ -25,6 +25,12 @@ class PageSeeder extends Seeder
                 'content' => '<h1>Política de Privacidade</h1><p>Como cuidamos dos seus dados...</p>',
                 'meta_description' => 'Nossa política de proteção de dados.'
             ],
+            [
+                'title' => 'Cookies',
+                'slug' => 'cookies',
+                'content' => '<h1>Cookies</h1><p>Informações sobre cookies utilizados no site...</p>',
+                'meta_description' => 'Política de cookies da plataforma.'
+            ],
         ];
 
         foreach ($pages as $page) {
