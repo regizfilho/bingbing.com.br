@@ -1,954 +1,763 @@
-# Games Edit
-
-```php
-<?php
-
-use Livewire\Attributes\Computed;
-use Livewire\Attributes\Validate;
-use Livewire\Component;
-use App\Models\Game\Game;
-
-new class extends Component {
-    public Game $game;
-
-    #[Validate('required|min:3|max:255')]
-    public string $name = '';
-
-    #[Validate('required|in:manual,automatic')]
-    public string $draw_mode = 'manual';
-
-    #[Validate('required_if:draw_mode,automatic|integer|min:2|max:10')]
-    public int $auto_draw_seconds = 3;
-
-    #[Validate('*.name', 'required|min:2|max:255')]
-    public array $prizes = [];
-
-    #[Computed]
-    public function user()
-    {
-        return auth()->user();
-    }
-
-    public function mount($game): void
-    {
-        $this->game = Game::where('uuid', $game)
-            ->with(['prizes', 'package'])
-            ->firstOrFail();
-
-        if ($this->game->creator_id !== $this->user->id) {
-            abort(403, 'Você não é o criador desta partida.');
-        }
-
-        if ($this->game->status !== 'draft') {
-            session()->flash('error', 'Apenas partidas em rascunho podem ser editadas.');
-            $this->redirect(route('games.index'), navigate: true);
-            return;
-        }
-
-        $this->name = $this->game->name;
-        $this->draw_mode = $this->game->draw_mode;
-        $this->auto_draw_seconds = $this->game->auto_draw_seconds ?? 3;
-
-        $this->prizes = $this->game->prizes
-            ->sortBy('position')
-            ->map(fn($prize) => [
-                'id' => $prize->id,
-                'name' => $prize->name ?? '',
-                'description' => $prize->description ?? '',
-            ])
-            ->values()
-            ->toArray();
-    }
-
-    public function addPrize(): void
-    {
-        $this->prizes[] = ['id' => null, 'name' => '', 'description' => ''];
-    }
-
-    public function removePrize(int $index): void
-    {
-        unset($this->prizes[$index]);
-        $this->prizes = array_values($this->prizes);
-    }
-
-    public function update(): void
-    {
-        $this->validate();
-
-        $this->game->update([
-            'name' => $this->name,
-            'draw_mode' => $this->draw_mode,
-            'auto_draw_seconds' => $this->auto_draw_seconds,
-        ]);
-
-        $this->game->prizes()->delete();
-
-        foreach ($this->prizes as $index => $prize) {
-            $this->game->prizes()->create([
-                'name' => $prize['name'],
-                'description' => $prize['description'] ?? '',
-                'position' => $index + 1,
-            ]);
-        }
-
-        $this->game->refresh();
-
-        session()->flash('success', 'Alterações salvas com sucesso!');
-    }
-
-    public function publish(): void
-    {
-        $this->validate();
-
-        if (empty($this->prizes)) {
-            session()->flash('error', 'Adicione pelo menos um prêmio antes de publicar.');
-            return;
-        }
-
-        $this->game->update([
-            'name' => $this->name,
-            'draw_mode' => $this->draw_mode,
-            'auto_draw_seconds' => $this->auto_draw_seconds,
-            'status' => 'waiting',
-        ]);
-
-        $this->game->prizes()->delete();
-
-        foreach ($this->prizes as $index => $prize) {
-            $this->game->prizes()->create([
-                'name' => $prize['name'],
-                'description' => $prize['description'] ?? '',
-                'position' => $index + 1,
-            ]);
-        }
-
-        session()->flash('success', 'Partida publicada com sucesso! Compartilhe o código com os jogadores.');
-        $this->redirect(route('games.play', $this->game), navigate: true);
-    }
-};
-?>
-
-<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-    <div class="mb-8 flex justify-between items-center flex-wrap gap-4">
-        <div>
-            <h1 class="text-3xl font-bold text-gray-900">Editar Partida</h1>
-            <p class="text-gray-600">{{ $game->name }}</p>
-        </div>
-        <a href="{{ route('games.index') }}" class="text-gray-600 hover:text-gray-900">
-            ← Voltar
-        </a>
-    </div>
-
-    @if (session('success'))
-        <div class="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-            {{ session('success') }}
-        </div>
-    @endif
-
-    @if (session('error'))
-        <div class="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-            {{ session('error') }}
-        </div>
-    @endif
-
-    <form wire:submit="update" class="space-y-6">
-        <div class="bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <div class="text-sm text-blue-800 font-medium mb-2">Pacote Selecionado</div>
-            <div class="text-lg font-semibold text-blue-900">{{ $game->package->name ?? '—' }}</div>
-            <div class="text-sm text-blue-700 mt-2">
-                Máx. {{ $game->package->max_players ?? '?' }} jogadores • 
-                {{ $game->package->max_cards_per_player ?? '?' }} cartela(s) por jogador
-            </div>
-        </div>
-
-        <div class="bg-white rounded-lg shadow p-6">
-            <label class="block text-sm font-medium text-gray-700 mb-2">Nome da Partida</label>
-            <input type="text" wire:model.blur="name"
-                class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500">
-            @error('name') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
-        </div>
-
-        <div class="bg-white rounded-lg shadow p-6">
-            <label class="block text-sm font-medium text-gray-700 mb-4">Modo de Sorteio</label>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <label class="border rounded-lg p-4 cursor-pointer transition hover:border-blue-500 
-                    {{ $draw_mode === 'manual' ? 'border-blue-500 bg-blue-50' : '' }}">
-                    <input type="radio" wire:model.live="draw_mode" value="manual" class="sr-only">
-                    <div class="font-semibold mb-1">Manual</div>
-                    <div class="text-sm text-gray-600">Você controla cada sorteio</div>
-                </label>
-
-                <label class="border rounded-lg p-4 cursor-pointer transition hover:border-blue-500 
-                    {{ $draw_mode === 'automatic' ? 'border-blue-500 bg-blue-50' : '' }}">
-                    <input type="radio" wire:model.live="draw_mode" value="automatic" class="sr-only">
-                    <div class="font-semibold mb-1">Automático</div>
-                    <div class="text-sm text-gray-600">Sorteios automáticos a cada intervalo</div>
-                </label>
-            </div>
-
-            @if ($draw_mode === 'automatic')
-                <div class="mt-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Intervalo (segundos)</label>
-                    <input type="number" wire:model.blur="auto_draw_seconds" min="2" max="10"
-                        class="w-full px-4 py-2 border rounded-lg">
-                    @error('auto_draw_seconds') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
-                </div>
-            @endif
-        </div>
-
-        <div class="bg-white rounded-lg shadow p-6">
-            <div class="flex justify-between items-center mb-4">
-                <label class="block text-sm font-medium text-gray-700">Prêmios</label>
-                <button type="button" wire:click="addPrize"
-                    class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm transition">
-                    + Adicionar Prêmio
-                </button>
-            </div>
-
-            <div class="space-y-4">
-                @foreach ($prizes as $index => $prize)
-                    <div class="border rounded-lg p-4">
-                        <div class="flex gap-4 items-start">
-                            <div class="flex-1">
-                                <input type="text" wire:model.blur="prizes.{{ $index }}.name"
-                                    placeholder="Nome do prêmio"
-                                    class="w-full px-4 py-2 border rounded-lg mb-2">
-                                @error("prizes.{$index}.name")
-                                    <span class="text-red-500 text-sm">{{ $message }}</span>
-                                @enderror
-
-                                <textarea wire:model.blur="prizes.{{ $index }}.description"
-                                    placeholder="Descrição (opcional)" rows="2"
-                                    class="w-full px-4 py-2 border rounded-lg"></textarea>
-                            </div>
-
-                            @if (count($prizes) > 1)
-                                <button type="button" wire:click="removePrize({{ $index }})"
-                                    class="text-red-600 hover:text-red-800 self-start mt-1">
-                                    Remover
-                                </button>
-                            @endif
-                        </div>
-                    </div>
-                @endforeach
-            </div>
-        </div>
-
-        <div class="flex flex-col sm:flex-row gap-4">
-            <button type="submit"
-                class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition font-semibold">
-                Salvar Alterações
-            </button>
-
-            <button type="button" wire:click="publish"
-                class="flex-1 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg transition font-semibold">
-                Publicar Partida
-            </button>
-
-            <a href="{{ route('games.index') }}"
-                class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-3 rounded-lg transition font-semibold text-center">
-                Cancelar
-            </a>
-        </div>
-    </form>
-</div>
-```
-
----
-
-# README.md
-
-```markdown
-# 🎰 Sistema de Bingo Online
-
-Sistema completo de bingo online multiplayer com suporte a múltiplas rodadas, gestão de créditos e interface otimizada para TV/projetor.
+# 🎮 Arena Bingo - Plataforma de Bingo Online em Tempo Real
 
 ## 📋 Índice
-
-- [Visão Geral](#visão-geral)
-- [Arquitetura](#arquitetura)
-- [Funcionalidades](#funcionalidades)
-- [Fluxo de Uso](#fluxo-de-uso)
-- [Instalação](#instalação)
-- [Estrutura de Telas](#estrutura-de-telas)
-- [Sistema de Pacotes](#sistema-de-pacotes)
-- [Sistema de Créditos](#sistema-de-créditos)
-- [Tecnologias](#tecnologias)
-
----
-
-## 🎯 Visão Geral
-
-Sistema de bingo desenvolvido em **Laravel 11** e **Livewire 4** que permite criar partidas personalizadas com múltiplas rodadas, diferentes tamanhos de cartela e modos de sorteio. O sistema separa três experiências distintas: controle do organizador (host), visualização pública (TV/projetor) e interface de jogo para participantes (mobile/desktop).
-
-### Principais Diferenciais
-
-- ✅ **3 interfaces separadas:** Host, Display público e Jogadores
-- ✅ **Múltiplas rodadas:** Gere novas cartelas automaticamente entre rodadas
-- ✅ **Otimizado para TV:** Tela pública fullscreen com números gigantes
-- ✅ **Mobile-first:** Interface de jogador responsiva e intuitiva
-- ✅ **Sistema de créditos:** Monetização integrada com carteira virtual
-- ✅ **Tempo real:** Atualizações automáticas via polling (preparado para websockets)
-- ✅ **Detecção automática:** Sistema identifica BINGO automaticamente
-- ✅ **Flexível:** 3 tamanhos de cartela (9, 15, 24 números)
+- [Sobre a Plataforma](#sobre-a-plataforma)
+- [Funcionalidades Principais](#funcionalidades-principais)
+- [Como Começar](#como-começar)
+- [Sistema de Monetização](#sistema-de-monetização)
+- [Jogando Bingo](#jogando-bingo)
+- [Criando Salas](#criando-salas)
+- [Sistema de Ranking](#sistema-de-ranking)
+- [Transmissão Pública](#transmissão-pública)
+- [Notificações](#notificações)
+- [FAQ](#faq)
 
 ---
 
-## 🏗️ Arquitetura
+## 🎯 Sobre a Plataforma
 
-### Arquitetura de 3 Telas
+**Arena Bingo** é uma plataforma moderna de bingo online que permite criar e participar de partidas personalizadas em tempo real. Com interface intuitiva, sistema de ranking competitivo e transmissão pública, a plataforma oferece uma experiência completa para jogadores e organizadores.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    SISTEMA DE BINGO                         │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                ┌─────────────┼─────────────┐
-                │             │             │
-         ┌──────▼─────┐ ┌────▼────┐ ┌─────▼──────┐
-         │    HOST    │ │ DISPLAY │ │  JOGADOR   │
-         │ (Controle) │ │   (TV)  │ │  (Mobile)  │
-         └────────────┘ └─────────┘ └────────────┘
-```
-
-### Modelos Principais
-
-```
-User (Usuários)
-├── Wallet (Carteira de créditos)
-│   └── Transactions (Histórico de movimentações)
-├── Games (Criador de partidas)
-└── Players (Participante de partidas)
-    └── Cards (Cartelas do jogador)
-
-Game (Partida)
-├── GamePackage (Pacote contratado)
-├── Players (Jogadores na partida)
-├── Cards (Todas as cartelas)
-├── Draws (Números sorteados)
-├── Prizes (Prêmios configurados)
-└── Winners (Vencedores por prêmio/rodada)
-```
+### ✨ Diferenciais
+- ⚡ **Tempo Real**: Sorteios e marcações sincronizados via WebSockets
+- 🎨 **Interface Moderna**: Design responsivo e animações fluidas
+- 📊 **Sistema de Ranking**: Compete e suba de patente
+- 📺 **Visor Público**: Transmita suas partidas para espectadores
+- 🏆 **Sistema de Prêmios**: Configure prêmios personalizados
+- 🔔 **Notificações Push**: Receba alertas de eventos importantes
 
 ---
 
-## 🚀 Funcionalidades
+## 🚀 Funcionalidades Principais
 
-### Para o Organizador (Host)
+### 👤 Para Jogadores
 
-- Criar partidas com pacotes Free, Básico ou Premium
-- Configurar número de rodadas (1 a ilimitadas)
-- Escolher tamanho das cartelas (9, 15 ou 24 números)
-- Definir modo de sorteio (manual ou automático)
-- Controlar visibilidade para jogadores
-- Sortear números manualmente ou automaticamente
-- Validar e conceder prêmios
-- Iniciar múltiplas rodadas
-- Finalizar partida
-- Compartilhar tela pública e código de convite
+#### **Perfil Personalizável**
+- Avatar customizado
+- Biografia e redes sociais
+- Nickname único
+- Localização (cidade/estado)
+- Histórico completo de partidas
 
-### Para Jogadores
+#### **Carteira Virtual**
+- Saldo em créditos (C$)
+- Histórico de transações
+- Sistema de débito/crédito automático
+- Reembolso automático em partidas vazias
 
-- Entrar via código de 6 dígitos
-- Receber cartelas automaticamente
-- Marcar números clicando
-- Ver últimos números sorteados (se habilitado)
-- Indicador visual de números correspondentes (se habilitado)
-- Notificação ao completar BINGO
-- Acompanhar prêmios e vencedores
+#### **Participação em Partidas**
+- Entrada via código de acesso
+- Múltiplas cartelas por partida (configurável)
+- Marcação manual ou automática de números
+- Detecção automática de BINGO
+- Chat e interação em tempo real
 
-### Para o Público (TV/Projetor)
+#### **Conquistas e Títulos**
+Sistema de 7 patentes baseado em desempenho:
+- 🌱 **Iniciante** - Primeiras partidas
+- 🎖️ **Experiente** - 10+ vitórias
+- ⭐ **Veterano** - 25+ vitórias
+- 🎯 **Sniper** - Taxa de aproveitamento > 30%
+- 👑 **Mestre** - 50+ vitórias
+- 🏆 **Lenda** - 100+ vitórias
+- 🔥 **Imortal** - 1º lugar no ranking global
 
-- Visualização fullscreen sem controles
-- Número atual em destaque (12rem)
-- Últimos 8 números sorteados
-- Grade completa de 75 números
-- Lista de prêmios e vencedores
-- Contador de jogadores e rodadas
-- Tela de aguardo antes do início
-- Tela de finalização com campeões
+### 🎙️ Para Anfitriões (Criadores de Sala)
+
+#### **Criação de Salas Customizadas**
+- Nome e tema personalizados
+- Escolha de pacotes (Gratuito/Premium/VIP)
+- Configuração de rodadas (1-10)
+- Cartelas por jogador (1-10)
+- Tamanho da cartela (9, 15 ou 24 números)
+
+#### **Modos de Sorteio**
+- **Manual**: Controle total, sorteio sob demanda
+- **Automático**: Intervalo configurável (2-60 segundos)
+
+#### **Gerenciamento de Prêmios**
+- Prêmios ilimitados por sala
+- Premiação por posição (1º, 2º, 3º...)
+- Bingos de honra (sem prêmio físico)
+- Sistema de validação de vitórias
+- Distribuição automática ou manual
+
+#### **Controle de Partida**
+- Pausar/retomar sorteios
+- Avançar rodadas manualmente
+- Validar cartelas vencedoras
+- Finalizar partida a qualquer momento
+- Monitoramento de jogadores ativos
+
+#### **Ferramentas de Transmissão**
+- Compartilhamento via WhatsApp/Twitter/Clipboard
+- Link público para espectadores
+- Visor de display fullscreen
+- Interface otimizada para projeção
+- QR Code de acesso rápido
 
 ---
 
-## 📱 Fluxo de Uso
+## 📱 Como Começar
 
-### 1. Preparação (Host)
-
+### 1️⃣ **Criar Conta**
 ```
-1. Host acessa /games/create
-2. Seleciona pacote (Free/Básico/Premium)
-3. Configura:
-   - Nome da partida
+1. Acesse a plataforma
+2. Clique em "Cadastrar"
+3. Preencha: Nome, E-mail, Senha
+4. Confirme o e-mail (se habilitado)
+5. Complete seu perfil com:
+   - Avatar
+   - Nickname
+   - Localização
+   - Instagram (opcional)
+```
+
+### 2️⃣ **Adicionar Créditos** (Para criar salas pagas)
+```
+1. Acesse "Carteira"
+2. Visualize seu saldo atual
+3. Escolha um plano de recarga
+4. Realize o pagamento
+5. Créditos liberados automaticamente
+```
+
+### 3️⃣ **Entrar em uma Partida**
+```
+1. Receba um código de acesso (ex: ABC123XYZ)
+2. Acesse "Entrar em Sala"
+3. Digite o código
+4. Clique em "Entrar na Partida"
+5. Suas cartelas serão geradas automaticamente
+6. Aguarde o início do jogo
+```
+
+### 4️⃣ **Criar Sua Primeira Sala**
+```
+1. Acesse "Criar Sala"
+2. Escolha um nome atrativo
+3. Selecione o tipo de sala:
+   - 🆓 Gratuita (0 C$)
+   - 💎 Premium (150 C$)
+   - 👑 VIP (300 C$)
+4. Configure as regras:
    - Número de rodadas
-   - Tamanho da cartela (9/15/24)
-   - Modo de sorteio (manual/automático)
-   - Visibilidade para jogadores
-   - Prêmios
-4. Clica em "Criar Partida"
-5. Sistema debita créditos (se não for Free)
-6. Partida criada em status "draft"
-```
-
-### 2. Publicação (Host)
-
-```
-1. Host acessa /games/{uuid}/edit
-2. Revisa configurações
-3. Clica em "Publicar Partida"
-4. Status muda para "waiting"
-5. Código de convite gerado (ex: ABC123)
-```
-
-### 3. Início da Partida
-
-```
-HOST:
-1. Acessa /games/{uuid} (painel de controle)
-2. Clica em "Abrir Tela Pública"
-3. Nova aba abre: /display/{uuid}
-4. Conecta TV/projetor nesta aba
-5. Compartilha código ABC123 com jogadores
-6. Aguarda jogadores entrarem
-7. Clica em "Iniciar Partida"
-
-JOGADORES:
-1. Acessam /join/ABC123
-2. Sistema gera cartelas automaticamente
-3. Aguardam início
-
-TELA PÚBLICA (TV):
-1. Mostra "Aguardando Início..."
-2. Exibe código de convite
-3. Contador de jogadores
-```
-
-### 4. Durante a Partida
-
-```
-HOST (Painel de Controle):
-- Clica em "Sortear Próximo Número" (modo manual)
-  OU
-- Sistema sorteia automaticamente (modo automático)
-- Vê lista de BINGO detectados
-- Valida e concede prêmios clicando
-
-TELA PÚBLICA (TV):
-- Mostra número sorteado (animação bounce)
-- Atualiza grade de 75 números
-- Exibe vencedores conforme ganham
-- Auto-refresh a cada 3 segundos
-
-JOGADORES (Mobile):
-- Clicam nos números para marcar
-- Veem círculo amarelo se habilitado
-- Recebem alerta ao completar BINGO
-- Gritam "BINGO!" para o host
-```
-
-### 5. Múltiplas Rodadas
-
-```
-1. Todos os prêmios da rodada foram concedidos
-2. HOST clica em "Próxima Rodada"
-3. Sistema automaticamente:
-   - Reseta status dos prêmios
-   - Gera NOVAS cartelas para todos
-   - Limpa números sorteados
-   - Incrementa contador de rodada
-4. Jogadores recebem novas cartelas
-5. Ciclo se repete
-```
-
-### 6. Finalização
-
-```
-HOST:
-1. Clica em "Finalizar Partida"
-2. Sistema valida:
-   - Sem jogadores? → Reembolsa créditos
-   - Sem vencedores? → Reembolsa créditos
-   - Caso contrário → Consome créditos normalmente
-
-TELA PÚBLICA:
-- Mostra "Partida Finalizada!"
-- Lista de campeões finais
-- Organizador em destaque
-
-JOGADORES:
-- Veem tela de finalização
-- Estatísticas atualizadas
+   - Cartelas por jogador
+   - Prêmios por rodada
+5. Adicione os prêmios (mínimo 1)
+6. Clique em "Criar e Abrir Sala Agora"
 ```
 
 ---
 
-## 💻 Instalação
+## 💰 Sistema de Monetização
 
-### Requisitos
+### **Pacotes de Salas**
 
-- PHP 8.2+
-- Composer
-- MySQL/PostgreSQL
-- Node.js 18+ (para build de assets)
+#### 🆓 **Sala Gratuita**
+- **Custo**: 0 C$
+- **Rodadas**: Até 3
+- **Jogadores**: Até 10
+- **Cartelas**: Até 2 por jogador
+- **Ideal para**: Testes e jogos casuais
 
-### Passo a Passo
-
-```bash
-# 1. Clone o repositório
-git clone https://github.com/seu-usuario/bingo-system.git
-cd bingo-system
-
-# 2. Instale dependências PHP
-composer install
-
-# 3. Configure o ambiente
-cp .env.example .env
-php artisan key:generate
-
-# 4. Configure o banco de dados no .env
-DB_CONNECTION=mysql
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_DATABASE=bingo
-DB_USERNAME=root
-DB_PASSWORD=
-
-# 5. Execute as migrations
-php artisan migrate
-
-# 6. Execute os seeders
-php artisan db:seed
-
-# 7. Instale dependências Node
-npm install
-
-# 8. Compile assets
-npm run build
-
-# 9. Inicie o servidor
-php artisan serve
-```
-
-### Seeders Incluídos
-
-```bash
-# Cria pacotes de carteira
-php artisan db:seed --class=WalletPackageSeeder
-
-# Cria pacotes de jogo (Free, Básico, Premium)
-php artisan db:seed --class=GamePackageSeeder
-
-# Cria usuários de teste
-php artisan db:seed --class=UserSeeder
-```
-
----
-
-## 📺 Estrutura de Telas
-
-### 1️⃣ Tela do HOST (Organizador)
-
-**Rota:** `/games/{uuid}`  
-**Componente:** `games-play.php`  
-**Autenticação:** Obrigatória (apenas criador)
-
-#### Layout
-
-```
-┌────────────────────────────────────────────────┐
-│  SIDEBAR (Esquerda)                            │
-│  - Nome da partida + status                    │
-│  - Código de convite                           │
-│  - Saldo de créditos                           │
-│  - Botões de ação:                             │
-│    • Compartilhar Tela Pública                 │
-│    • Compartilhar Convite                      │
-│    • Abrir Tela Pública                        │
-│    • Iniciar Partida                           │
-│    • Próxima Rodada                            │
-│    • Finalizar Partida                         │
-├────────────────────────────────────────────────┤
-│  MAIN (Direita)                                │
-│  1. Painel de Controle                         │
-│     - Botão "Sortear Próximo Número"           │
-│     - Último número sorteado (destaque)        │
-│     - Grade de 75 números                      │
-│                                                │
-│  2. BINGO Detectado (se houver)                │
-│     - Lista de cartelas vencedoras             │
-│                                                │
-│  3. Gerenciar Prêmios                          │
-│     - Grid de prêmios                          │
-│     - Status (Disponível/Concedido)            │
-│     - Vencedor da rodada                       │
-│     - Botões "Conceder a [Jogador]"            │
-│                                                │
-│  4. Jogadores                                  │
-│     - Lista com avatares                       │
-│     - Número de cartelas                       │
-│     - Badge "Vencedor" se aplicável            │
-└────────────────────────────────────────────────┘
-```
-
-#### Recursos Visuais
-
-- Saldo de créditos em destaque
-- Alerta de reembolso se partida vazia
-- Feedback visual ao sortear
-- Alertas de sucesso/erro no topo
-
----
-
-### 2️⃣ Tela PÚBLICA (TV/Telão)
-
-**Rota:** `/display/{uuid}`  
-**Componente:** `games-display.php`  
-**Autenticação:** NÃO requerida (pública)
-
-#### Layout (Status: Active)
-
-```
-┌────────────────────────────────────────────────────────────┐
-│                    [NOME DA PARTIDA]                       │
-│         Rodada: 1/3  •  Jogadores: 15                      │
-├──────────────┬─────────────────────────┬───────────────────┤
-│              │                         │                   │
-│  ÚLTIMOS     │    NÚMERO ATUAL         │    PRÊMIOS        │
-│  SORTEADOS   │                         │                   │
-│              │       ┌─────────┐       │  1º - TV 50"      │
-│    [42]      │       │         │       │  Winner: João     │
-│    [17]      │       │   23    │       │                   │
-│    [68]      │       │         │       │  2º - R$ 100      │
-│    [05]      │       └─────────┘       │  Disponível       │
-│    [31]      │                         │                   │
-│    [56]      │    23 / 75 sorteados    │  VENCEDORES       │
-│    [12]      │                         │  🏆 João          │
-│    [49]      │                         │                   │
-│              │                         │                   │
-├──────────────┴─────────────────────────┴───────────────────┤
-│         GRADE COMPLETA (75 NÚMEROS)                        │
-│  [01][02][03][04][05] ... [75]                             │
-│  Verde = Sorteado / Cinza = Pendente                       │
-├────────────────────────────────────────────────────────────┤
-│              Organizado por [Nome do Host]                 │
-└────────────────────────────────────────────────────────────┘
-```
-
-#### Estados da Tela
-
-**Waiting (Aguardando):**
-```
-┌────────────────────────────────────────┐
-│          🎲 (animação pulse)           │
-│      Aguardando Início...              │
-│                                        │
-│    Código de Convite: ABC123           │
-└────────────────────────────────────────┘
-```
-
-**Finished (Finalizado):**
-```
-┌────────────────────────────────────────┐
-│      Partida Finalizada!               │
-│                                        │
-│    Campeões da Partida:                │
-│    🥇 João Silva                        │
-│    🥈 Maria Santos                      │
-└────────────────────────────────────────┘
-```
-
-#### Recursos Visuais
-
-- Background gradiente roxo moderno
-- Número atual: 12rem de tamanho
-- Animação bounce-in ao sortear
-- Auto-refresh: 3 segundos
-- Cores semânticas:
-  - Verde: números sorteados
-  - Amarelo: prêmios concedidos
-  - Cinza: pendentes
-
----
-
-### 3️⃣ Tela do JOGADOR (Mobile/Desktop)
-
-**Rota:** `/join/{invite_code}`  
-**Componente:** `games-join.php`  
-**Autenticação:** Obrigatória
-
-#### Layout
-
-```
-┌─────────────────────────────────────────┐
-│  Header                                 │
-│  - Nome da partida                      │
-│  - Rodada atual                         │
-│  - Últimos sorteados (se habilitado)    │
-├─────────────────────────────────────────┤
-│  Minhas Cartelas                        │
-│                                         │
-│  ┌──── CARTELA #1 ────┐                │
-│  │  [12] [45] [67]     │                │
-│  │  [03] [🟡] [88]     │ ← Círculo      │
-│  │  [21] [54] [09]     │   amarelo se   │
-│  └─────────────────────┘   habilitado   │
-│     5/9 marcados                        │
-│                                         │
-│  ┌──── CARTELA #2 ────┐                │
-│  │  [15] [32] [51]     │                │
-│  │  [07] [43] [69]     │                │
-│  │  [28] [11] [77]     │                │
-│  └─────────────────────┘                │
-│     2/9 marcados                        │
-├─────────────────────────────────────────┤
-│  Prêmios                                │
-│  1º Lugar - TV 50" (Disponível)         │
-│  2º Lugar - R$ 100 (João Silva)         │
-└─────────────────────────────────────────┘
-```
-
-#### Interações
-
-- **Clicar em número:** Marca/desmarca
-- **Número com círculo amarelo:** Você tem este número (se habilitado)
-- **BINGO completo:** Alerta visual + notificar host
-- **Swipe horizontal:** Navegar entre cartelas (se múltiplas)
-
-#### Responsividade
-
-- Mobile: 1 cartela por vez, swipe
-- Tablet: 2 cartelas lado a lado
-- Desktop: até 3 cartelas lado a lado
-
----
-
-## 📦 Sistema de Pacotes
-
-### Free (0 créditos)
-
-```yaml
-Custo: Grátis
-Rodadas: 1
-Jogadores: 10
-Cartelas por jogador: 1
-Tamanhos de cartela: 24 apenas
-Features:
-  - Sorteio manual
-  - Visibilidade padrão
-```
-
-### Básico (10 créditos)
-
-```yaml
-Custo: 10 créditos
-Rodadas: 3
-Jogadores: 30
-Cartelas por jogador: 2
-Tamanhos de cartela: 15 ou 24
-Features:
-  - Sorteio manual ou automático
-  - Controles de visibilidade
-  - Prêmios ilimitados
-```
-
-### Premium (25 créditos)
-
-```yaml
-Custo: 25 créditos
-Rodadas: Ilimitadas (999)
-Jogadores: 100
-Cartelas por jogador: 5
-Tamanhos de cartela: 9, 15 ou 24
-Features:
-  - Todos os recursos
+#### 💎 **Sala Premium**
+- **Custo**: 150 C$
+- **Rodadas**: Até 6
+- **Jogadores**: Até 30
+- **Cartelas**: Até 5 por jogador
+- **Recursos**:
+  - Sorteio automático
+  - Transmissão pública
   - Suporte prioritário
-  - Analytics avançados
-```
 
----
+#### 👑 **Sala VIP**
+- **Custo**: 300 C$
+- **Rodadas**: Até 10
+- **Jogadores**: Ilimitados
+- **Cartelas**: Até 10 por jogador
+- **Recursos**:
+  - Todos os recursos Premium
+  - Branding personalizado
+  - Analytics avançado
+  - Reembolso garantido
 
-## 💳 Sistema de Créditos
-
-### Compra de Créditos
-
-**Rota:** `/wallet`
-
-#### Pacotes Disponíveis
-
-| Pacote   | Créditos | Preço     | Valor/Crédito |
-|----------|----------|-----------|---------------|
-| Starter  | 10       | R$ 5,00   | R$ 0,50       |
-| Popular  | 50       | R$ 20,00  | R$ 0,40       |
-| Premium  | 150      | R$ 50,00  | R$ 0,33       |
-
-#### Fluxo de Compra
-
-```
-1. Usuário acessa /wallet
-2. Visualiza saldo atual
-3. Clica em pacote desejado
-4. Modal de confirmação abre
-5. Confirma compra (simulada)
-6. Créditos adicionados instantaneamente
-7. Transação registrada em wallet_transactions
-```
-
-### Consumo de Créditos
-
-```
-DÉBITO (ao criar partida):
-- Pacote Free: 0 créditos
-- Pacote Básico: 10 créditos
-- Pacote Premium: 25 créditos
-
-CRÉDITO (reembolso automático se):
-- Partida finalizada sem jogadores
+### **Política de Reembolso**
+✅ **Reembolso automático** se:
+- Nenhum jogador entrar na sala
 - Partida finalizada sem vencedores
-- Partida abandonada
-```
+- Cancelamento antes do início
 
-### Histórico de Transações
+❌ **Sem reembolso** se:
+- Pelo menos 1 jogador participou
+- Partida iniciada com sorteios
+- Sala já teve vencedores
 
-**Rota:** `/wallet/transactions`
-
-Campos registrados:
-- Data/hora
-- Descrição
-- Tipo (credit/debit)
-- Valor
-- Saldo após transação
-- Status (completed/pending/refunded)
-- Relacionamento (Game ou Package)
+### **Planos de Recarga** (Exemplo)
+- 💵 R$ 10,00 = 100 C$
+- 💵 R$ 25,00 = 300 C$ (+50 bônus)
+- 💵 R$ 50,00 = 700 C$ (+200 bônus)
+- 💵 R$ 100,00 = 1.500 C$ (+500 bônus)
 
 ---
 
-## 🎮 Configurações de Visibilidade
+## 🎲 Jogando Bingo
 
-### show_drawn_to_players
+### **Fluxo de uma Partida**
 
-**Padrão:** `true`
+#### **1. Entrada e Preparação**
+```
+→ Jogador insere código
+→ Sistema gera cartelas automaticamente
+→ Aguarda início da partida
+```
 
-- **true:** Jogadores veem últimos números sorteados e painel lateral
-- **false:** Jogadores NÃO veem números (devem assistir à TV)
+#### **2. Durante o Jogo**
+```
+→ Números são sorteados em tempo real
+→ Jogador marca números na cartela
+→ Sistema valida marcações automaticamente
+→ Quando completar: BINGO!
+```
 
-### show_player_matches
+#### **3. Validação de Vitória**
+```
+→ Cartela completa detectada
+→ Organizador valida o BINGO
+→ Prêmio concedido automaticamente
+→ Jogador recebe notificação
+```
 
-**Padrão:** `true`
+#### **4. Continuação**
+```
+→ Partida pode ter múltiplas rodadas
+→ Novas cartelas geradas a cada rodada
+→ Premiação independente por rodada
+```
 
-- **true:** Círculo amarelo indica números que o jogador possui
-- **false:** Sem indicador visual (jogador verifica manualmente)
+### **Tipos de Cartela**
 
-### Modos Recomendados
+#### 📊 **9 Números** (3x3)
+- Jogo rápido (5-10 minutos)
+- Alta chance de vitória
+- Ideal para iniciantes
 
+#### 📊 **15 Números** (3x5)
+- Jogo médio (10-20 minutos)
+- Equilíbrio velocidade/estratégia
+- Mais popular
+
+#### 📊 **24 Números** (5x5 com centro livre)
+- Jogo longo (20-40 minutos)
+- Maior estratégia
+- Recompensas maiores
+
+### **Recursos do Jogador**
+
+✅ **Ver Números Sorteados**: Painel com histórico completo
+✅ **Marcação Automática**: Sistema marca por você (se habilitado)
+✅ **Detecção de BINGO**: Alerta instantâneo ao completar
+✅ **Múltiplas Cartelas**: Jogue com até 10 cartelas simultaneamente
+✅ **Estatísticas Live**: Veja progresso em tempo real
+
+---
+
+## 🏗️ Criando Salas
+
+### **Passo a Passo Detalhado**
+
+#### **Etapa 1: Informações Básicas**
 ```yaml
-Modo Fácil (iniciantes):
-  show_drawn_to_players: true
-  show_player_matches: true
+Nome da Sala: "Bingo da Sorte - Edição Especial"
+Descrição: Opcional, aparece no convite
+Tipo: Gratuito/Premium/VIP
+```
 
-Modo Competitivo (experientes):
-  show_drawn_to_players: false
-  show_player_matches: false
+#### **Etapa 2: Configurações de Jogo**
+```yaml
+Rodadas Totais: 1-10
+Cartelas por Jogador: 1-10
+Tamanho da Cartela: 9/15/24 números
+Prêmios por Rodada: 1-Ilimitado
+```
 
-Modo Híbrido:
-  show_drawn_to_players: true
-  show_player_matches: false
+#### **Etapa 3: Modo de Sorteio**
+```yaml
+Manual:
+  - Controle total pelo anfitrião
+  - Botão "Sortear Número"
+  - Ideal para eventos ao vivo
+
+Automático:
+  - Intervalo de 2-60 segundos
+  - Sistema sorteia automaticamente
+  - Pode pausar/retomar
+  - Ajuste velocidade em tempo real
+```
+
+#### **Etapa 4: Regras Opcionais**
+```yaml
+☐ Jogadores veem números sorteados
+☐ Sistema marca números automaticamente
+☐ Validação automática de BINGO
+```
+
+#### **Etapa 5: Cadastro de Prêmios**
+```yaml
+Prêmio #1:
+  Nome: "PIX de R$ 100"
+  Descrição: "Enviado em até 24h"
+  Posição: 1º Lugar
+
+Prêmio #2:
+  Nome: "Vale-Compras R$ 50"
+  Descrição: "Marketplace parceiro"
+  Posição: 2º Lugar
+
+Prêmio #3:
+  Nome: "Cupom de Desconto"
+  Descrição: "30% OFF na próxima compra"
+  Posição: 3º Lugar
+```
+
+### **Gerenciamento Durante a Partida**
+
+#### **Centro de Comando**
+```
+┌─────────────────────────────────────┐
+│  🎮 CENTRO DE COMANDO               │
+├─────────────────────────────────────┤
+│  ▶️  Sortear Número                 │
+│  ⏸️  Pausar Sorteios                │
+│  ⏭️  Próxima Rodada                 │
+│  🏁 Finalizar Partida               │
+│  ⚙️  Ajustar Velocidade             │
+└─────────────────────────────────────┘
+```
+
+#### **Validação de Vitórias**
+```
+Quando um jogador faz BINGO:
+
+1. Sistema detecta cartela completa
+2. Pausa sorteios automaticamente
+3. Mostra alerta ao anfitrião:
+   
+   ┌────────────────────────────────┐
+   │ 🎉 BINGO DETECTADO!            │
+   ├────────────────────────────────┤
+   │ Jogador: Maria Silva           │
+   │ Cartela: #abc123               │
+   │                                │
+   │ [🎁 Conceder 1º Prêmio]       │
+   │ [✨ Registrar Honra]           │
+   └────────────────────────────────┘
+
+4. Anfitrião valida e concede prêmio
+5. Sistema registra vencedor
+6. Sorteios retomam automaticamente
+```
+
+### **Ferramentas de Divulgação**
+
+#### **Convidar Jogadores**
+```
+WhatsApp:
+"Entre no bingo Bingo da Sorte com o código 
+ABC123XYZ: [link]"
+
+Twitter/X:
+"🎮 Bingo ao vivo AGORA! Código: ABC123XYZ
+Acesse: [link]"
+
+Clipboard:
+https://arenabingo.com/join/ABC123XYZ
+```
+
+#### **Transmissão Pública**
+```
+WhatsApp:
+"Assista o bingo Bingo da Sorte ao vivo!
+Veja em: [link-display]"
+
+Link Direto:
+https://arenabingo.com/display/uuid-da-sala
+
+→ Abre visor público fullscreen
+→ Atualiza em tempo real
+→ Sem necessidade de login
+→ Ideal para projeção
 ```
 
 ---
 
-## 🛠️ Tecnologias
+## 🏆 Sistema de Ranking
 
-### Backend
+### **Categorias de Ranking**
 
-- **Laravel 11:** Framework PHP
-- **Livewire 4:** Componentes reativos
-- **MySQL:** Banco de dados
-- **Laravel Breeze:** Autenticação
+#### **🎮 Ranking de Jogadores**
+```yaml
+Critérios:
+  - Total de vitórias
+  - Taxa de aproveitamento
+  - Sequência atual (streak)
+  - Melhor sequência histórica
 
-### Frontend
+Filtros:
+  - 🌍 Geral (todos os tempos)
+  - 📅 Mensal (últimos 30 dias)
+  - 📆 Semanal (últimos 7 dias)
+  - 🗺️ Por Estado
 
-- **Tailwind CSS:** Estilização
-- **Alpine.js:** Interatividade client-side
-- **Blade:** Template engine
+Visualização:
+  - Top 3 em pódio destacado
+  - Tabela completa até #100
+  - Sua posição sempre visível
+```
 
-### Destaques Técnicos
+#### **🎙️ Ranking de Anfitriões**
+```yaml
+Critérios:
+  - Total de salas criadas
+  - Jogadores atendidos
+  - Partidas finalizadas
+  - Avaliação dos jogadores
 
-- **Livewire 4:**
-  - `#[On]` attributes para eventos
-  - `#[Computed]` para propriedades reativas
-  - `#[Validate]` para validação inline
-  - Polling nativo (wire:poll)
-  
-- **Arquitetura:**
-  - Repository pattern
-  - Service layer
-  - Eloquent relationships otimizadas
-  - Eager loading estratégico
+Destaques:
+  - Anfitriões mais ativos
+  - Melhor avaliados
+  - Maior audiência
+```
+
+### **Sistema de Patentes**
+
+As patentes são conquistadas automaticamente baseado no desempenho:
+
+```
+🌱 Iniciante
+   └─> Primeiras partidas jogadas
+
+🎖️ Experiente (10 vitórias)
+   └─> Demonstra consistência
+
+⭐ Veterano (25 vitórias)
+   └─> Combatente experiente
+
+🎯 Sniper (Taxa > 30%)
+   └─> Precisão cirúrgica
+
+👑 Mestre (50 vitórias)
+   └─> Domínio avançado
+
+🏆 Lenda (100 vitórias)
+   └─> Histórico impecável
+
+🔥 Imortal (1º Lugar Global)
+   └─> O topo da cadeia
+```
+
+### **Estatísticas Pessoais**
+
+Seu perfil exibe:
+- 🏆 Total de vitórias
+- 📊 Taxa de aproveitamento
+- 🎯 Posição no ranking
+- 🔥 Sequência atual
+- 📈 Melhor sequência
+- 🎮 Total de partidas
+- 📅 Membro desde
+- 🌍 Estado/Cidade
 
 ---
 
-## 📝 Próximos Passos
+## 📺 Transmissão Pública (Display)
 
-- [ ] Integração com WebSockets (Laravel Reverb)
-- [ ] Gateway de pagamento real (Stripe/PagSeguro)
-- [ ] Notificações push
-- [ ] Chat entre jogadores
-- [ ] Estatísticas e rankings
-- [ ] Temas personalizáveis
-- [ ] Exportação de relatórios
-- [ ] API pública
+### **O que é o Visor Público?**
+
+Interface dedicada para espectadores acompanharem partidas em tempo real, ideal para:
+- 📽️ Projeção em eventos presenciais
+- 📱 Compartilhamento em redes sociais
+- 🖥️ Transmissão em lives
+- 👥 Acompanhamento de familiares/amigos
+
+### **Recursos do Display**
+
+#### **Durante a Partida (Status: Ativo)**
+```
+┌────────────────────────────────────────┐
+│  🔴 LIVE     BINGO DA SORTE           │
+│  Rodada 2/5                           │
+├────────────────────────────────────────┤
+│                                        │
+│     ┌──────────────────┐             │
+│     │                  │             │
+│     │       42         │  ← Número   │
+│     │                  │    Sorteado │
+│     └──────────────────┘             │
+│           35 de 75                    │
+│                                        │
+├────────────────────────────────────────┤
+│  Últimos: [41][38][12][07][33]       │
+├────────────────────────────────────────┤
+│  Grid 1-75 (números marcados)        │
+├────────────────────────────────────────┤
+│  🏆 PREMIAÇÃO                         │
+│  ✅ 1º - PIX R$100 - João Silva      │
+│  ⏳ 2º - Vale R$50                    │
+│  ⏳ 3º - Cupom 30%                    │
+└────────────────────────────────────────┘
+```
+
+#### **Partida Finalizada (Status: Finished)**
+```
+┌────────────────────────────────────────┐
+│  🏆 VENCEDORES - BINGO DA SORTE       │
+├────────────────────────────────────────┤
+│                                        │
+│  🥇 1º LUGAR                          │
+│  João Silva                           │
+│  Prêmio: PIX de R$ 100                │
+│                                        │
+│  🥈 2º LUGAR                          │
+│  Maria Santos                         │
+│  Prêmio: Vale-Compras R$ 50           │
+│                                        │
+│  🥉 3º LUGAR                          │
+│  Pedro Oliveira                       │
+│  Prêmio: Cupom 30% OFF                │
+│                                        │
+│  ✨ BINGOS DE HONRA                   │
+│  • Ana Costa                          │
+│  • Carlos Souza                       │
+│                                        │
+│  Partida encerrada • Rodada 5/5       │
+└────────────────────────────────────────┘
+```
+
+### **Responsividade Total**
+
+O display se adapta perfeitamente a:
+- 📱 Smartphones (iOS/Android)
+- 💻 Tablets e iPads
+- 🖥️ Monitores e TVs
+- 📽️ Projetores e Telões
+
+### **Animações e Efeitos**
+- ✨ Entrada suave de números sorteados
+- 🎉 Celebração de vitórias
+- 🔄 Transições fluidas entre rodadas
+- 💫 Destaque do último número sorteado
+- 🌟 Confetes ao finalizar partida
 
 ---
 
-## 📄 Licença
+## 🔔 Sistema de Notificações
 
-Este projeto é proprietário. Todos os direitos reservados.
+### **Notificações Push** (Web/Mobile)
+
+Os jogadores recebem notificações em tempo real para:
+
+#### **Para Jogadores:**
+```
+🎮 Nova Partida Disponível
+   "João criou uma nova sala: Bingo da Sorte"
+
+🚀 Partida Iniciada
+   "O bingo começou! Entre agora"
+
+🏆 Você Venceu!
+   "Parabéns! Você ganhou: PIX de R$ 100"
+
+🔄 Nova Rodada
+   "Rodada 2 iniciada - Novas cartelas disponíveis"
+
+🏁 Partida Finalizada
+   "Bingo da Sorte finalizado - Confira resultados"
+
+🎉 Novo Vencedor
+   "Maria Silva ganhou o 1º lugar!"
+```
+
+#### **Para Anfitriões:**
+```
+👤 Novo Jogador
+   "Pedro entrou na sua sala (5 jogadores)"
+
+🎯 BINGO Detectado
+   "Cartela vencedora aguardando validação"
+
+⚠️ Sala Vazia
+   "Nenhum jogador entrou ainda"
+
+💰 Créditos Reembolsados
+   "150 C$ devolvidos - Sala sem jogadores"
+```
+
+### **Notificações In-App**
+- Toasts discretos no canto da tela
+- Cores diferenciadas por tipo (sucesso/erro/info/alerta)
+- Auto-dismiss configurável
+- Som opcional (configurável)
 
 ---
 
-## 👤 Autor
+## 📊 Estratégia de Limites Implementada
 
-Desenvolvido por [Seu Nome]
+### 🆓 **Plano GRATUITO**
+```
+✅ 2 salas por dia
+✅ 10 salas por mês
+✅ Funcionalidades básicas
+❌ Sem sorteio automático
+❌ Sem transmissão pública premium
+❌ Limite de 5 jogadores
+```
 
-**Contato:**
-- Email: seu@email.com
-- GitHub: @seu-usuario
-- LinkedIn: /in/seu-perfil
+### 💎 **Plano BÁSICO** (150 C$)
+```
+✅ 10 salas por dia
+✅ Ilimitado no mês
+✅ Sorteio automático
+✅ Até 30 jogadores
+✅ Transmissão pública
+✅ 3 rodadas máximo
+```
+
+### 👑 **Plano PREMIUM** (300 C$)
+```
+✅ 50 salas por dia
+✅ Ilimitado no mês
+✅ Todas as funcionalidades
+✅ Jogadores ilimitados
+✅ 10 rodadas máximo
+✅ Analytics avançado
+✅ Suporte prioritário
+
+## ❓ FAQ - Perguntas Frequentes
+
+### **Gerais**
+
+**P: A plataforma é gratuita?**
+R: Sim! Você pode criar salas gratuitas ilimitadas e participar de qualquer partida sem custo.
+
+**P: Como funciona a monetização?**
+R: Apenas a criação de salas Premium/VIP exige créditos. Jogar é sempre gratuito.
+
+**P: Posso ganhar dinheiro real?**
+R: Os prêmios são definidos pelo anfitrião da sala. Podem ser PIX, vale-compras, produtos, ou apenas diversão.
+
+**P: É seguro usar a plataforma?**
+R: Sim! Utilizamos criptografia SSL, autenticação segura e proteção de dados pessoais.
+
+### **Jogabilidade**
+
+**P: Quantas cartelas posso ter?**
+R: Depende da configuração da sala. Geralmente entre 1 a 10 cartelas.
+
+**P: Como sei que ganhei?**
+R: O sistema detecta automaticamente quando sua cartela está completa e exibe um alerta visual e sonoro.
+
+**P: Posso jogar no celular?**
+R: Sim! A plataforma é 100% responsiva e funciona em qualquer dispositivo.
+
+**P: E se eu perder a conexão?**
+R: Ao reconectar, você retorna exatamente onde parou. Suas marcações são salvas.
+
+### **Criação de Salas**
+
+**P: Qual a diferença entre os pacotes?**
+R: Salas gratuitas têm limites menores (rodadas, jogadores). Premium e VIP oferecem mais recursos e capacidade.
+
+**P: Posso editar uma sala já criada?**
+R: Sim, antes de iniciar. Após iniciada, apenas prêmios e configurações de sorteio podem ser ajustados.
+
+**P: O que acontece se ninguém entrar?**
+R: Você recebe reembolso automático dos créditos gastos.
+
+**P: Posso cobrar entrada dos jogadores?**
+R: Não. A plataforma não suporta cobrança de jogadores. Os prêmios são responsabilidade do anfitrião.
+
+### **Créditos e Pagamento**
+
+**P: Como adiciono créditos?**
+R: Via carteira digital, aceitamos cartão de crédito, PIX e outros métodos.
+
+**P: Os créditos expiram?**
+R: Não! Seus créditos ficam disponíveis indefinidamente.
+
+**P: Posso transferir créditos para outro usuário?**
+R: Não no momento. Essa funcionalidade está em desenvolvimento.
+
+**P: Como funciona o reembolso?**
+R: Automático! Se sua sala não tiver jogadores ou for cancelada antes de iniciar, os créditos voltam imediatamente.
+
+### **Ranking e Títulos**
+
+**P: Como subo no ranking?**
+R: Ganhe partidas! Quanto mais vitórias, melhor sua posição.
+
+**P: O que é sequência (streak)?**
+R: Vitórias consecutivas. Quanto maior, mais impressionante!
+
+**P: Posso perder minha patente?**
+R: Não! Uma vez conquistada, a patente é permanente.
+
+**P: Como viro Imortal?**
+R: Seja o #1 do ranking geral. Apenas um jogador por vez pode ter esse título.
+
+### **Técnicas**
+
+**P: A plataforma funciona offline?**
+R: Não. É necessária conexão com internet para jogar.
+
+**P: Qual navegador é recomendado?**
+R: Chrome, Firefox, Safari ou Edge atualizados.
+
+**P: Posso usar em Smart TV?**
+R: Sim! O display público funciona perfeitamente em Smart TVs.
+
+**P: Há limite de jogadores simultâneos?**
+R: Depende do pacote da sala. VIP suporta jogadores ilimitados.
 
 ---
 
-## 🤝 Contribuindo
+## 🎯 Começe Agora!
 
-Este é um projeto privado, mas feedback é sempre bem-vindo! Entre em contato para sugestões.
+### **Para Jogadores:**
+1. ✅ Crie sua conta gratuita
+2. ✅ Complete seu perfil
+3. ✅ Entre em uma sala via código
+4. ✅ Divirta-se e ganhe prêmios!
+
+### **Para Anfitriões:**
+1. ✅ Crie sua conta
+2. ✅ Adicione créditos (se necessário)
+3. ✅ Configure sua primeira sala
+4. ✅ Convide jogadores e transmita!
 
 ---
 
 ## 📞 Suporte
 
-Para dúvidas ou problemas:
-1. Abra uma issue no GitHub
-2. Envie email para suporte@seubingo.com
-3. Consulte a documentação completa
+**Precisa de ajuda?**
+- 📧 Email: suporte@arenabingo.com
+- 💬 Chat ao vivo: Segunda a Sexta, 9h-18h
+- 📱 WhatsApp: (11) 99999-9999
+- 🌐 Central de Ajuda: help.arenabingo.com
 
 ---
 
-**Versão:** 1.0.0  
-**Última atualização:** Fevereiro 2025
-```
+## 📄 Documentação Técnica
+
+**Para Desenvolvedores:**
+- 🔧 API REST disponível
+- 📡 WebSocket para tempo real
+- 🔐 OAuth2 para autenticação
+- 📊 Webhooks para integrações
+- 📚 Documentação completa em docs.arenabingo.com
 
 ---
 
-## Melhorias no README
+**Arena Bingo** - Onde a diversão encontra a competição! 🎮🏆
 
-✅ **Estrutura clara** com índice navegável  
-✅ **Fluxo completo** passo a passo  
-✅ **Diagramas ASCII** para visualização  
-✅ **Exemplos de código** inline  
-✅ **Tabelas** comparativas de pacotes  
-✅ **Layout visual** das 3 telas  
-✅ **Guia de instalação** detalhado  
-✅ **Configurações** explicadas  
-✅ **Roadmap** de próximas features
-
-
----
-Adicionar botão de bingo
+*Versão 2.0 - Última atualização: Fevereiro 2026*

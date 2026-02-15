@@ -49,35 +49,30 @@ new #[Layout('layouts.display')] class extends Component {
     {
         $round = $this->game->current_round;
 
-        // 1. Grid Numérico (1-75)
         $this->drawnNumbers = $this->game->draws()
             ->where('round_number', $round)
             ->orderBy('number', 'asc')
             ->pluck('number')
             ->toArray();
 
-        // 2. BUSCA DO HISTÓRICO - FORÇANDO ORDENAÇÃO DE COLEÇÃO
         $drawsRecords = $this->game->draws()
             ->where('round_number', $round)
-            ->get() // Pegamos a coleção
-            ->sortByDesc('id') // Ordenamos a coleção explicitamente pelo ID
-            ->values(); // Resetamos os índices para que o 0 seja o mais recente
+            ->get()
+            ->sortByDesc('id')
+            ->values();
 
-        // Define o ID do último para o wire:key do destaque central
         $latest = $drawsRecords->first();
         $this->lastDrawId = $latest ? $latest->id : null;
 
-        // 3. MAPEAMENTO GARANTIDO
         $this->currentDraws = $drawsRecords->take(10)->map(function ($draw) {
             return [
                 'id' => $draw->id,
                 'number' => $draw->number,
                 'created_at' => $draw->created_at->format('H:i:s'),
-                'unique_key' => "draw-{$draw->id}-" . Str::random(4), // Força refresh visual
+                'unique_key' => "draw-{$draw->id}-" . Str::random(4),
             ];
         })->toArray();
 
-        // 4. Vencedores e Prêmios
         $this->roundWinners = Winner::where('game_id', $this->game->id)
             ->where('round_number', $round)
             ->with('user')
@@ -125,115 +120,359 @@ new #[Layout('layouts.display')] class extends Component {
 };
 ?>
 
-<div class="min-h-screen w-full bg-[#05070a] text-slate-200 p-6 lg:p-10 overflow-hidden font-sans italic">
-    {{-- LOADING OVERLAY --}}
-    <div wire:loading class="fixed top-10 right-10 z-[500]">
-        <div class="flex items-center gap-3 bg-blue-600/10 border border-blue-500/20 px-6 py-3 rounded-full backdrop-blur-md">
-            <div class="w-2 h-2 bg-blue-500 rounded-full animate-ping"></div>
-            <span class="text-[10px] font-black text-blue-500 uppercase tracking-widest">Sincronizando...</span>
+<div class="min-h-screen w-full bg-[#05070a] text-slate-200 px-2 xs:px-3 sm:px-4 md:px-6 lg:px-8 xl:px-10 py-3 xs:py-4 sm:py-5 md:py-6 lg:py-8 overflow-x-hidden font-sans italic">
+
+    <div wire:loading class="fixed top-3 xs:top-4 right-3 xs:right-4 z-[500] animate-fade-in">
+        <div class="flex items-center gap-2 xs:gap-3 bg-blue-600/10 border border-blue-500/20 px-3 xs:px-4 sm:px-5 py-1.5 xs:py-2 rounded-full backdrop-blur-md shadow-xl animate-pulse-slow">
+            <div class="w-1.5 xs:w-2 h-1.5 xs:h-2 bg-blue-500 rounded-full animate-ping"></div>
+            <span class="text-[8px] xs:text-[9px] font-black text-blue-500 uppercase tracking-wider xs:tracking-widest">
+                Sincronizando...
+            </span>
         </div>
     </div>
 
-    {{-- HEADER --}}
-    <header class="max-w-[1800px] mx-auto mb-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-8">
-        <div class="relative">
-            <div class="flex items-center gap-4 mb-4">
-                <div class="h-[2px] w-12 bg-blue-600"></div>
-                <span class="text-blue-500 font-black tracking-[0.4em] uppercase text-[10px]">Arena Display System</span>
+    <header class="max-w-[2000px] mx-auto mb-4 xs:mb-5 sm:mb-6 lg:mb-8 flex flex-col lg:flex-row justify-between gap-3 xs:gap-4 lg:gap-6 animate-slide-down">
+
+        <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 xs:gap-3 mb-2 xs:mb-2.5 lg:mb-3 flex-wrap">
+                <div class="h-[2px] w-6 xs:w-8 sm:w-10 lg:w-12 bg-blue-600 animate-expand flex-shrink-0"></div>
+                <span class="text-blue-500 font-black tracking-[0.2em] xs:tracking-[0.3em] lg:tracking-[0.4em] uppercase text-[7px] xs:text-[8px] sm:text-[9px]">
+                    Arena Display
+                </span>
+
                 @if($game->status === 'active')
-                    <div class="flex items-center gap-2 px-3 py-1 bg-red-600/10 border border-red-500/20 rounded-md">
-                        <div class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
-                        <span class="text-[8px] font-black text-red-500 uppercase tracking-widest">LIVE</span>
+                    <div class="flex items-center gap-1.5 xs:gap-2 px-2 xs:px-2.5 sm:px-3 py-1 bg-red-600/10 border border-red-500/20 rounded-md animate-fade-in flex-shrink-0">
+                        <div class="w-1 xs:w-1.5 h-1 xs:h-1.5 bg-red-500 rounded-full animate-pulse"></div>
+                        <span class="text-[7px] xs:text-[8px] font-black text-red-500 uppercase tracking-widest">LIVE</span>
                     </div>
                 @endif
             </div>
-            <h1 class="text-5xl lg:text-7xl font-black text-white tracking-tighter uppercase leading-none">
-                {{ $game->name }}
+
+            <h1 class="text-xl xs:text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl 2xl:text-7xl font-black text-white tracking-tighter uppercase leading-none animate-slide-up break-words">
+                {{ Str::limit($game->name, 50) }}
             </h1>
         </div>
 
-        <div class="flex items-center gap-6 bg-[#0b0d11] border border-white/5 p-6 rounded-[2rem] shadow-2xl">
-            <div class="text-right border-r border-white/10 pr-6">
-                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Rodada Atual</p>
-                <p class="text-3xl font-black text-white leading-none">
-                    {{ str_pad($game->current_round, 2, '0', STR_PAD_LEFT) }}<span class="text-slate-700 text-sm italic">/{{ $game->max_rounds }}</span>
+        <div class="flex flex-row xs:flex-wrap lg:flex-nowrap items-center justify-between xs:justify-start gap-3 xs:gap-4 lg:gap-6 bg-[#0b0d11] border border-white/5 p-3 xs:p-4 lg:p-5 rounded-xl xs:rounded-2xl shadow-2xl animate-slide-up flex-shrink-0">
+            <div class="text-right border-r border-white/10 pr-3 xs:pr-4 lg:pr-6">
+                <p class="text-[7px] xs:text-[8px] sm:text-[9px] font-black text-slate-500 uppercase tracking-wider xs:tracking-widest mb-1">
+                    Rodada
+                </p>
+                <p class="text-base xs:text-lg sm:text-xl lg:text-2xl xl:text-3xl font-black text-white leading-none whitespace-nowrap">
+                    {{ str_pad($game->current_round, 2, '0', STR_PAD_LEFT) }}
+                    <span class="text-slate-700 text-[10px] xs:text-xs sm:text-sm">/{{ $game->max_rounds }}</span>
                 </p>
             </div>
-            <div class="text-center">
-                <p class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Status da Arena</p>
-                <div class="px-6 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border bg-{{ $this->statusColor }}-600 border-{{ $this->statusColor }}-500 text-white shadow-lg shadow-{{ $this->statusColor }}-600/20">
+
+            <div>
+                <p class="text-[7px] xs:text-[8px] sm:text-[9px] font-black text-slate-500 uppercase tracking-wider xs:tracking-widest mb-1.5 xs:mb-2">
+                    Status
+                </p>
+                <div class="px-3 xs:px-4 lg:px-5 py-1 xs:py-1.5 lg:py-2 rounded-full text-[7px] xs:text-[8px] sm:text-[9px] font-black uppercase tracking-widest border whitespace-nowrap
+                    bg-{{ $this->statusColor }}-600 border-{{ $this->statusColor }}-500 text-white animate-pulse-slow">
                     {{ $this->statusLabel }}
                 </div>
             </div>
         </div>
     </header>
 
-    @if ($game->status === 'active')
-        <div class="max-w-[1800px] mx-auto grid grid-cols-12 gap-10">
+    @if ($game->status === 'finished')
+
+    {{-- TELA DE GANHADORES --}}
+    <div class="fixed inset-0 z-[400] flex items-center justify-center bg-[#05070a]/95 backdrop-blur-xl animate-fade-in p-4 sm:p-6 lg:p-8">
+        
+        <div class="w-full max-w-[90vw] sm:max-w-[80vw] lg:max-w-[70vw] xl:max-w-[60vw] 2xl:max-w-[50vw] max-h-[85vh] overflow-hidden animate-zoom-in">
             
-            {{-- COLUNA ESQUERDA: HISTÓRICO --}}
-            <div class="col-span-12 lg:col-span-3 space-y-8">
-                <div class="bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-8 shadow-2xl">
-                    <h3 class="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] mb-8 flex items-center gap-3">
-                        <span class="w-2 h-2 bg-blue-600 rounded-full"></span>
+            {{-- HEADER GANHADORES --}}
+            <div class="text-center mb-6 xs:mb-8 sm:mb-10 lg:mb-12 animate-slide-down">
+                <div class="inline-flex items-center justify-center gap-3 xs:gap-4 mb-4 xs:mb-5 sm:mb-6">
+                    <div class="h-[2px] w-8 xs:w-12 sm:w-16 lg:w-20 bg-gradient-to-r from-transparent via-yellow-500 to-yellow-500"></div>
+                    <span class="text-yellow-500 font-black tracking-[0.3em] xs:tracking-[0.4em] uppercase text-[9px] xs:text-[10px] sm:text-[11px]">
+                        Partida Finalizada
+                    </span>
+                    <div class="h-[2px] w-8 xs:w-12 sm:w-16 lg:w-20 bg-gradient-to-l from-transparent via-yellow-500 to-yellow-500"></div>
+                </div>
+
+                <h2 class="text-3xl xs:text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-black text-white tracking-tighter uppercase leading-none mb-3 xs:mb-4 animate-title-glow">
+                    🏆 Vencedores 🏆
+                </h2>
+
+                <p class="text-xs xs:text-sm sm:text-base lg:text-lg text-slate-400 font-bold uppercase tracking-widest">
+                    {{ $game->name }}
+                </p>
+            </div>
+
+            {{-- LISTA DE GANHADORES --}}
+            <div class="bg-[#0b0d11] border-2 border-yellow-500/20 rounded-2xl xs:rounded-3xl sm:rounded-[2.5rem] p-4 xs:p-6 sm:p-8 lg:p-10 shadow-2xl shadow-yellow-500/10 max-h-[55vh] overflow-y-auto no-scrollbar">
+                
+                @if(count(array_filter($prizes, fn($p) => $p['winner'])) > 0)
+                    <div class="space-y-3 xs:space-y-4 sm:space-y-5 lg:space-y-6">
+                        @foreach ($prizes as $index => $prize)
+                            @if($prize['winner'])
+                                <div style="animation-delay: {{ $index * 150 }}ms;"
+                                     class="group relative overflow-hidden bg-gradient-to-br from-[#161920] to-[#0b0d11] border-2 border-yellow-500/30 rounded-xl xs:rounded-2xl sm:rounded-3xl p-4 xs:p-5 sm:p-6 lg:p-8 transition-all duration-500 hover:scale-[1.02] hover:border-yellow-500/60 hover:shadow-2xl hover:shadow-yellow-500/20 animate-winner-slide">
+                                    
+                                    {{-- BACKGROUND GLOW --}}
+                                    <div class="absolute inset-0 bg-gradient-to-r from-yellow-500/0 via-yellow-500/5 to-yellow-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                                    
+                                    {{-- POSIÇÃO --}}
+                                    <div class="absolute -top-2 -left-2 xs:-top-3 xs:-left-3 w-12 xs:w-14 sm:w-16 lg:w-20 h-12 xs:h-14 sm:h-16 lg:h-20 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center shadow-lg shadow-yellow-500/50 animate-bounce-subtle z-10">
+                                        <span class="text-base xs:text-lg sm:text-xl lg:text-2xl font-black text-[#05070a]">
+                                            #{{ $prize['position'] }}
+                                        </span>
+                                    </div>
+
+                                    <div class="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 ml-10 xs:ml-12 sm:ml-14 lg:ml-16">
+                                        
+                                        {{-- INFO PRÊMIO --}}
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-center gap-2 xs:gap-3 mb-2 xs:mb-2.5 sm:mb-3">
+                                                <span class="text-yellow-500 text-xl xs:text-2xl sm:text-3xl lg:text-4xl animate-pulse">🏆</span>
+                                                <h3 class="text-sm xs:text-base sm:text-lg lg:text-xl xl:text-2xl font-black text-yellow-500 uppercase tracking-tight truncate">
+                                                    {{ $prize['name'] }}
+                                                </h3>
+                                            </div>
+                                            
+                                            {{-- NOME VENCEDOR --}}
+                                            <div class="bg-white/5 border border-white/10 rounded-lg xs:rounded-xl sm:rounded-2xl px-3 xs:px-4 sm:px-6 py-2 xs:py-3 sm:py-4 backdrop-blur-sm">
+                                                <p class="text-[8px] xs:text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                                                    Vencedor
+                                                </p>
+                                                <p class="text-lg xs:text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-black text-white uppercase leading-none truncate animate-text-shine">
+                                                    {{ $prize['winner'] }}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {{-- ÍCONE DECORATIVO --}}
+                                        <div class="hidden sm:flex items-center justify-center w-16 lg:w-20 xl:w-24 h-16 lg:h-20 xl:h-24 bg-yellow-500/10 border border-yellow-500/30 rounded-2xl lg:rounded-3xl flex-shrink-0 animate-float">
+                                            <span class="text-3xl lg:text-4xl xl:text-5xl animate-spin-slow-reverse">⭐</span>
+                                        </div>
+
+                                    </div>
+
+                                    {{-- CONFETTI DECORATIVO --}}
+                                    <div class="absolute top-0 right-0 w-20 xs:w-24 sm:w-32 h-20 xs:h-24 sm:h-32 opacity-20 pointer-events-none">
+                                        <div class="absolute top-2 right-2 w-2 h-2 bg-yellow-400 rounded-full animate-confetti-1"></div>
+                                        <div class="absolute top-6 right-8 w-1.5 h-1.5 bg-yellow-300 rounded-full animate-confetti-2"></div>
+                                        <div class="absolute top-10 right-4 w-2.5 h-2.5 bg-yellow-500 rounded-full animate-confetti-3"></div>
+                                    </div>
+
+                                </div>
+                            @endif
+                        @endforeach
+                    </div>
+                @else
+                    <div class="text-center py-12 xs:py-16 sm:py-20">
+                        <span class="text-6xl xs:text-7xl sm:text-8xl mb-4 xs:mb-6 block animate-bounce-subtle">😔</span>
+                        <p class="text-lg xs:text-xl sm:text-2xl font-bold text-slate-400 uppercase">
+                            Nenhum vencedor registrado
+                        </p>
+                    </div>
+                @endif
+
+            </div>
+
+            {{-- FOOTER INFO --}}
+            <div class="mt-6 xs:mt-8 sm:mt-10 text-center animate-slide-up">
+                <div class="inline-flex items-center gap-2 xs:gap-3 bg-white/5 border border-white/10 rounded-full px-4 xs:px-5 sm:px-6 py-2 xs:py-2.5 sm:py-3 backdrop-blur-sm">
+                    <div class="w-2 xs:w-2.5 h-2 xs:h-2.5 bg-emerald-500 rounded-full animate-pulse"></div>
+                    <span class="text-[9px] xs:text-[10px] sm:text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                        Partida encerrada • Rodada {{ $game->current_round }}/{{ $game->max_rounds }}
+                    </span>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    @elseif ($game->status === 'active')
+
+    <div class="max-w-[2000px] mx-auto">
+
+        <!-- MOBILE & TABLET LAYOUT (< XL) -->
+        <div class="xl:hidden space-y-4 xs:space-y-5 sm:space-y-6">
+
+            <!-- CÍRCULO PRINCIPAL MOBILE -->
+            @if (!empty($currentDraws))
+                <div wire:key="main-display-mobile-{{ $lastDrawId }}" class="relative group flex justify-center animate-zoom-in py-4 xs:py-6">
+
+                    <div class="absolute inset-0 bg-blue-600/30 blur-[60px] xs:blur-[80px] sm:blur-[100px] rounded-full animate-pulse-glow"></div>
+                    <div class="absolute inset-0 bg-gradient-to-r from-blue-600/0 via-blue-600/20 to-blue-600/0 blur-2xl animate-spin-slow"></div>
+
+                    <div class="relative 
+                        w-[min(85vw,320px)] xs:w-[min(75vw,360px)] sm:w-[min(65vw,400px)] md:w-[min(55vw,440px)]
+                        h-[min(85vw,320px)] xs:h-[min(75vw,360px)] sm:h-[min(65vw,400px)] md:h-[min(55vw,440px)]
+                        rounded-full 
+                        flex flex-col items-center justify-center 
+                        border-2 border-white/10 
+                        bg-gradient-to-b from-[#161920] to-[#0b0d11]
+                        shadow-2xl
+                        animate-float">
+
+                        <span class="text-[8px] xs:text-[9px] sm:text-[10px] md:text-[11px] font-black text-blue-500 uppercase tracking-[0.3em] xs:tracking-[0.4em] sm:tracking-[0.5em] mb-2 xs:mb-2.5 sm:mb-3 animate-pulse">
+                            Sorteado
+                        </span>
+
+                        <div class="text-[4rem] xs:text-[5rem] sm:text-[6.5rem] md:text-[8rem] font-black text-white leading-none tracking-tighter drop-shadow-2xl animate-number-pop">
+                            {{ str_pad($currentDraws[0]['number'], 2, '0', STR_PAD_LEFT) }}
+                        </div>
+
+                        <div class="absolute bottom-3 xs:bottom-4 sm:bottom-5 md:bottom-6 px-3 xs:px-4 sm:px-5 py-1.5 xs:py-2 bg-white/5 rounded-full border border-white/10 backdrop-blur-sm animate-slide-up">
+                            <span class="text-[7px] xs:text-[8px] sm:text-[9px] font-black text-slate-500 uppercase tracking-wider xs:tracking-widest whitespace-nowrap">
+                                {{ count($drawnNumbers) }} de 75
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
+            <!-- ÚLTIMOS NÚMEROS MOBILE -->
+            <div class="bg-[#0b0d11] border border-white/5 rounded-xl xs:rounded-2xl sm:rounded-3xl p-3 xs:p-4 sm:p-5 animate-slide-right">
+                <h3 class="text-[8px] xs:text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] xs:tracking-[0.25em] sm:tracking-[0.3em] mb-3 xs:mb-4">
+                    Últimos Números
+                </h3>
+
+                <div class="grid grid-cols-4 gap-2 xs:gap-2.5 sm:gap-3">
+                    @foreach (collect($currentDraws)->take(8) as $index => $draw)
+                        <div wire:key="{{ $draw['unique_key'] }}-mobile"
+                             style="animation-delay: {{ $index * 50 }}ms;"
+                             class="aspect-square rounded-lg xs:rounded-xl sm:rounded-2xl flex items-center justify-center transition-all duration-700 animate-scale-in
+                             {{ $index === 0 ? 'bg-gradient-to-br from-blue-600 to-blue-700 shadow-lg shadow-blue-600/50 scale-105 animate-bounce-subtle' : 'bg-[#161920] opacity-50' }}">
+                            <span class="text-lg xs:text-xl sm:text-2xl font-black text-white">
+                                {{ str_pad($draw['number'], 2, '0', STR_PAD_LEFT) }}
+                            </span>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+
+            <!-- GRID MOBILE -->
+            <div class="bg-[#0b0d11] border border-white/5 rounded-xl xs:rounded-2xl sm:rounded-3xl p-2.5 xs:p-3 sm:p-4 md:p-5 animate-slide-up">
+                <div class="grid grid-cols-8 xs:grid-cols-10 sm:grid-cols-12 md:grid-cols-15 gap-1 xs:gap-1.5 sm:gap-2">
+                    @foreach (range(1, 75) as $num)
+                        @php
+                            $isDrawn = in_array($num, $drawnNumbers);
+                            $drawIndex = $isDrawn ? array_search($num, array_reverse($drawnNumbers)) : null;
+                        @endphp
+                        <div wire:key="grid-mobile-{{ $num }}"
+                             style="{{ $isDrawn ? 'animation-delay: ' . ($drawIndex * 30) . 'ms;' : '' }}"
+                             class="aspect-square rounded xs:rounded-md sm:rounded-lg flex items-center justify-center text-[8px] xs:text-[9px] sm:text-[10px] md:text-xs font-black transition-all duration-700
+                             {{ $isDrawn
+                                ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-md shadow-blue-600/30 animate-grid-pop'
+                                : 'bg-[#161920] text-slate-700' }}">
+                            {{ str_pad($num, 2, '0', STR_PAD_LEFT) }}
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+
+            <!-- PREMIAÇÃO MOBILE -->
+            <div class="bg-[#0b0d11] border border-white/5 rounded-xl xs:rounded-2xl sm:rounded-3xl p-3 xs:p-4 sm:p-5 animate-slide-left">
+                <h3 class="text-[8px] xs:text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] xs:tracking-[0.25em] sm:tracking-[0.3em] mb-3 xs:mb-4">
+                    Premiação
+                </h3>
+
+                <div class="space-y-2.5 xs:space-y-3 sm:space-y-4 max-h-[40vh] xs:max-h-[45vh] sm:max-h-[50vh] overflow-y-auto no-scrollbar">
+                    @foreach ($prizes as $index => $prize)
+                        <div style="animation-delay: {{ $index * 100 }}ms;"
+                             class="p-2.5 xs:p-3 sm:p-4 rounded-lg xs:rounded-xl sm:rounded-2xl border transition-all duration-500 animate-slide-up
+                            {{ $prize['winner'] 
+                                ? 'bg-gradient-to-br from-emerald-600 to-emerald-700 border-emerald-500 opacity-80 shadow-lg shadow-emerald-600/30 animate-prize-win' 
+                                : 'bg-[#161920] border-white/5' }}">
+                            <span class="text-[7px] xs:text-[8px] sm:text-[9px] font-black uppercase text-blue-500">
+                                Slot #{{ $prize['position'] }}
+                            </span>
+                            <h4 class="text-xs xs:text-sm sm:text-base font-black text-white uppercase truncate mt-1">
+                                {{ $prize['name'] }}
+                            </h4>
+                            @if($prize['winner'])
+                                <div class="mt-1.5 xs:mt-2 text-[8px] xs:text-[9px] sm:text-[10px] font-black text-white uppercase flex items-center gap-1.5 xs:gap-2 animate-slide-up">
+                                    <span class="animate-bounce-subtle">🏆</span>
+                                    <span class="truncate">{{ $prize['winner'] }}</span>
+                                </div>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+
+        </div>
+
+        <!-- DESKTOP LAYOUT (XL+) -->
+        <div class="hidden xl:grid grid-cols-12 gap-6 2xl:gap-8">
+
+            <div class="col-span-3 space-y-6 animate-slide-right">
+
+                <div class="bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-6 2xl:p-8">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-6">
                         Últimos Números
                     </h3>
 
-                    <div class="grid grid-cols-2 gap-4">
+                    <div class="grid grid-cols-4 gap-3">
                         @foreach (collect($currentDraws)->take(8) as $index => $draw)
-                            <div wire:key="{{ $draw['unique_key'] }}" 
-                                 class="relative aspect-square rounded-[1.5rem] flex items-center justify-center transition-all duration-500
-                                 {{ $index === 0 ? 'bg-blue-600 shadow-2xl shadow-blue-600/40 scale-105 z-10' : 'bg-[#161920] border border-white/5 opacity-40' }}">
-                                <span class="text-4xl font-black {{ $index === 0 ? 'text-white' : 'text-slate-400' }}">
+                            <div wire:key="{{ $draw['unique_key'] }}"
+                                 style="animation-delay: {{ $index * 50 }}ms;"
+                                 class="aspect-square rounded-2xl flex items-center justify-center transition-all duration-700 animate-scale-in
+                                 {{ $index === 0 ? 'bg-gradient-to-br from-blue-600 to-blue-700 shadow-lg shadow-blue-600/50 scale-105 animate-bounce-subtle' : 'bg-[#161920] opacity-50' }}">
+                                <span class="text-2xl font-black text-white">
                                     {{ str_pad($draw['number'], 2, '0', STR_PAD_LEFT) }}
                                 </span>
-                                @if($index === 0)
-                                    <div class="absolute -top-2 -right-2 bg-white text-blue-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-tighter shadow-xl">Novo</div>
-                                @endif
                             </div>
                         @endforeach
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="bg-[#0b0d11] border border-white/5 rounded-2xl p-6">
-                        <span class="text-[8px] font-black text-slate-600 uppercase tracking-widest block mb-2">Jogadores</span>
-                        <span class="text-xl font-black text-white italic">{{ $game->players->count() }}</span>
-                    </div>
-                    <div class="bg-[#0b0d11] border border-white/5 rounded-2xl p-6">
-                        <span class="text-[8px] font-black text-slate-600 uppercase tracking-widest block mb-2">Sorteados</span>
-                        <span class="text-xl font-black text-white italic">{{ count($drawnNumbers) }}</span>
-                    </div>
-                </div>
             </div>
 
-            {{-- CENTRO: O GRANDE NÚMERO (GARANTIDO O ÍNDICE 0) --}}
-            <div class="col-span-12 lg:col-span-6 flex flex-col items-center justify-between min-h-[60vh]">
+            <div class="col-span-6 flex flex-col items-center justify-center animate-zoom-in">
+
                 @if (!empty($currentDraws))
-                    <div wire:key="main-display-{{ $lastDrawId }}" class="relative group mt-10">
-                        <div class="absolute inset-0 bg-blue-600/20 blur-[120px] rounded-full animate-pulse"></div>
-                        
-                        <div class="relative bg-gradient-to-b from-[#161920] to-[#0b0d11] border border-white/10 w-80 h-80 lg:w-[28rem] lg:h-[28rem] rounded-full flex flex-col items-center justify-center shadow-[0_0_100px_rgba(0,0,0,0.5)]">
-                            <span class="text-[12px] font-black text-blue-500 uppercase tracking-[0.5em] mb-4">Sorteado</span>
-                            <div class="text-[12rem] lg:text-[15rem] font-black text-white leading-none tracking-tighter drop-shadow-2xl">
+                    <div wire:key="main-display-{{ $lastDrawId }}" class="relative group mb-10">
+
+                        <div class="absolute inset-0 bg-blue-600/30 blur-[120px] rounded-full animate-pulse-glow"></div>
+                        <div class="absolute inset-0 bg-gradient-to-r from-blue-600/0 via-blue-600/20 to-blue-600/0 blur-2xl animate-spin-slow"></div>
+
+                        <div class="relative 
+                            w-[480px] h-[480px] 2xl:w-[560px] 2xl:h-[560px]
+                            rounded-full 
+                            flex flex-col items-center justify-center 
+                            border-2 border-white/10 
+                            bg-gradient-to-b from-[#161920] to-[#0b0d11]
+                            shadow-2xl
+                            animate-float">
+
+                            <span class="text-[11px] 2xl:text-[12px] font-black text-blue-500 uppercase tracking-[0.5em] mb-3 animate-pulse">
+                                Sorteado
+                            </span>
+
+                            <div class="text-[12rem] 2xl:text-[14rem] font-black text-white leading-none tracking-tighter drop-shadow-2xl animate-number-pop">
                                 {{ str_pad($currentDraws[0]['number'], 2, '0', STR_PAD_LEFT) }}
                             </div>
-                            <div class="absolute bottom-12 px-6 py-2 bg-white/5 rounded-full border border-white/10 backdrop-blur-md">
-                                <span class="text-[10px] font-black text-slate-500 uppercase tracking-widest">#{{ count($drawnNumbers) }} de 75</span>
+
+                            <div class="absolute bottom-6 px-5 py-2 bg-white/5 rounded-full border border-white/10 backdrop-blur-sm animate-slide-up">
+                                <span class="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                                    {{ count($drawnNumbers) }} de 75
+                                </span>
                             </div>
                         </div>
                     </div>
                 @endif
 
-                {{-- GRID 75 NÚMEROS --}}
-                <div class="w-full bg-[#0b0d11] border border-white/5 rounded-[3rem] p-8 mt-12">
+                <div class="w-full bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-6 2xl:p-8 animate-slide-up">
                     <div class="grid grid-cols-15 gap-2">
                         @foreach (range(1, 75) as $num)
-                            <div wire:key="grid-{{ $num }}-{{ in_array($num, $drawnNumbers) ? 'y' : 'n' }}" 
-                                 class="aspect-square rounded-lg flex items-center justify-center text-sm font-black transition-all duration-700
-                                 {{ in_array($num, $drawnNumbers) 
-                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' 
-                                    : 'bg-[#161920] text-slate-800 border border-white/[0.02]' }}">
+                            @php
+                                $isDrawn = in_array($num, $drawnNumbers);
+                                $drawIndex = $isDrawn ? array_search($num, array_reverse($drawnNumbers)) : null;
+                            @endphp
+                            <div wire:key="grid-{{ $num }}"
+                                 style="{{ $isDrawn ? 'animation-delay: ' . ($drawIndex * 30) . 'ms;' : '' }}"
+                                 class="aspect-square rounded-lg flex items-center justify-center text-xs font-black transition-all duration-700
+                                 {{ $isDrawn
+                                    ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-md shadow-blue-600/30 animate-grid-pop'
+                                    : 'bg-[#161920] text-slate-700' }}">
                                 {{ str_pad($num, 2, '0', STR_PAD_LEFT) }}
                             </div>
                         @endforeach
@@ -241,58 +480,330 @@ new #[Layout('layouts.display')] class extends Component {
                 </div>
             </div>
 
-            {{-- COLUNA DIREITA --}}
-            <div class="col-span-12 lg:col-span-3 space-y-8">
-                <div class="bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-8 shadow-2xl flex flex-col h-full">
-                    <h3 class="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] mb-8 flex items-center gap-3">
-                        <span class="w-2 h-2 bg-amber-500 rounded-full"></span>
-                        Premiação Ativa
+            <div class="col-span-3 space-y-6 animate-slide-left">
+
+                <div class="bg-[#0b0d11] border border-white/5 rounded-[2.5rem] p-6 2xl:p-8">
+                    <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-6">
+                        Premiação
                     </h3>
 
-                    <div class="space-y-4 overflow-y-auto no-scrollbar max-h-[70vh]">
-                        @forelse ($prizes as $prize)
-                            <div class="p-5 rounded-2xl transition-all border {{ $prize['winner'] ? 'bg-emerald-600 border-emerald-500 scale-[0.98] opacity-50' : 'bg-[#161920] border-white/5 shadow-xl' }}">
-                                <div class="flex justify-between items-start mb-2">
-                                    <span class="text-[9px] font-black {{ $prize['winner'] ? 'text-white/60' : 'text-blue-500' }} uppercase">Slot #{{ $prize['position'] }}</span>
-                                    @if($prize['winner'])
-                                        <span class="bg-white/20 text-white text-[8px] px-2 py-0.5 rounded-md font-black italic">GANHO</span>
-                                    @endif
-                                </div>
-                                <h4 class="text-lg font-black text-white uppercase italic truncate">{{ $prize['name'] }}</h4>
+                    <div class="space-y-4 max-h-[60vh] overflow-y-auto no-scrollbar">
+                        @foreach ($prizes as $index => $prize)
+                            <div style="animation-delay: {{ $index * 100 }}ms;"
+                                 class="p-4 rounded-2xl border transition-all duration-500 animate-slide-up
+                                {{ $prize['winner'] 
+                                    ? 'bg-gradient-to-br from-emerald-600 to-emerald-700 border-emerald-500 opacity-80 shadow-lg shadow-emerald-600/30 animate-prize-win' 
+                                    : 'bg-[#161920] border-white/5' }}">
+                                <span class="text-[9px] font-black uppercase text-blue-500">
+                                    Slot #{{ $prize['position'] }}
+                                </span>
+                                <h4 class="text-base font-black text-white uppercase truncate mt-1">
+                                    {{ $prize['name'] }}
+                                </h4>
                                 @if($prize['winner'])
-                                    <div class="mt-3 pt-3 border-t border-white/10 flex items-center gap-2">
-                                        <span class="text-xl">🏆</span>
-                                        <span class="text-[11px] font-black text-white uppercase truncate">{{ $prize['winner'] }}</span>
+                                    <div class="mt-2 text-[10px] font-black text-white uppercase flex items-center gap-2 animate-slide-up">
+                                        <span class="animate-bounce-subtle">🏆</span>
+                                        <span class="truncate">{{ $prize['winner'] }}</span>
                                     </div>
                                 @endif
                             </div>
-                        @empty
-                            <div class="text-center py-20 text-slate-700 italic text-[10px] font-black uppercase tracking-widest">Nenhum prêmio</div>
-                        @endforelse
+                        @endforeach
                     </div>
                 </div>
+
             </div>
+
         </div>
-    @else
-        <div class="max-w-4xl mx-auto mt-32">
-            <div class="bg-[#0b0d11] border border-white/5 rounded-[4rem] p-24 text-center relative overflow-hidden">
-                <div class="absolute inset-0 bg-blue-600/5 blur-[100px]"></div>
-                <div class="relative z-10 text-center">
-                    <div class="text-8xl mb-10">📺</div>
-                    <h2 class="text-4xl font-black text-white uppercase italic tracking-tighter mb-6">Aguardando Início</h2>
-                    <div class="inline-flex items-center gap-4 px-6 py-2 bg-white/5 border border-white/10 rounded-full mx-auto">
-                        <span class="text-blue-500 text-[10px] font-black uppercase tracking-widest italic">{{ $this->statusLabel }}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
+
+    </div>
+
     @endif
 
     <style>
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        @media (min-width: 1024px) {
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .no-scrollbar::-webkit-scrollbar { 
+            display: none; 
+        }
+        .no-scrollbar { 
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        
+        @media (min-width: 1280px) {
             .grid-cols-15 { grid-template-columns: repeat(15, minmax(0, 1fr)); }
+        }
+
+        @media (min-width: 768px) and (max-width: 1279px) {
+            .md\:grid-cols-15 { grid-template-columns: repeat(15, minmax(0, 1fr)); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideDown {
+            from { 
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes slideUp {
+            from { 
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to { 
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes slideRight {
+            from { 
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to { 
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes slideLeft {
+            from { 
+                opacity: 0;
+                transform: translateX(20px);
+            }
+            to { 
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes zoomIn {
+            from { 
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to { 
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes scaleIn {
+            from { 
+                opacity: 0;
+                transform: scale(0.5);
+            }
+            to { 
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        @keyframes numberPop {
+            0% { 
+                transform: scale(0);
+                opacity: 0;
+            }
+            50% { 
+                transform: scale(1.15);
+            }
+            100% { 
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        @keyframes gridPop {
+            0% { 
+                transform: scale(0.5);
+                opacity: 0;
+            }
+            70% { 
+                transform: scale(1.1);
+            }
+            100% { 
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+        }
+
+        @keyframes bounceSubtle {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.6; }
+        }
+
+        @keyframes pulseSlow {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+
+        @keyframes expand {
+            from { width: 0; }
+            to { width: 100%; }
+        }
+
+        @keyframes spinSlow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes spinSlowReverse {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(-360deg); }
+        }
+
+        @keyframes prizeWin {
+            0%, 100% { transform: scale(1); }
+            25% { transform: scale(1.03); }
+            50% { transform: scale(1); }
+            75% { transform: scale(1.03); }
+        }
+
+        @keyframes titleGlow {
+            0%, 100% { 
+                text-shadow: 0 0 20px rgba(234, 179, 8, 0.3),
+                             0 0 40px rgba(234, 179, 8, 0.2),
+                             0 0 60px rgba(234, 179, 8, 0.1);
+            }
+            50% { 
+                text-shadow: 0 0 30px rgba(234, 179, 8, 0.5),
+                             0 0 60px rgba(234, 179, 8, 0.3),
+                             0 0 90px rgba(234, 179, 8, 0.2);
+            }
+        }
+
+        @keyframes textShine {
+            0% { 
+                background-position: -200% center;
+            }
+            100% { 
+                background-position: 200% center;
+            }
+        }
+
+        @keyframes winnerSlide {
+            from {
+                opacity: 0;
+                transform: translateX(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes confetti1 {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.8; }
+            50% { transform: translate(-5px, -10px) rotate(180deg); opacity: 1; }
+        }
+
+        @keyframes confetti2 {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.6; }
+            50% { transform: translate(8px, -15px) rotate(-180deg); opacity: 1; }
+        }
+
+        @keyframes confetti3 {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 0.7; }
+            50% { transform: translate(-8px, -8px) rotate(90deg); opacity: 1; }
+        }
+
+        @media (max-width: 640px) {
+            @keyframes float {
+                0%, 100% { transform: translateY(0px); }
+                50% { transform: translateY(-4px); }
+            }
+            
+            @keyframes slideDown,
+            @keyframes slideUp,
+            @keyframes slideRight,
+            @keyframes slideLeft {
+                from { 
+                    opacity: 0;
+                    transform: translate(0, 10px);
+                }
+                to { 
+                    opacity: 1;
+                    transform: translate(0, 0);
+                }
+            }
+        }
+
+        .animate-fade-in { animation: fadeIn 0.5s ease-out; }
+        .animate-slide-down { animation: slideDown 0.6s ease-out; }
+        .animate-slide-up { animation: slideUp 0.6s ease-out; }
+        .animate-slide-right { animation: slideRight 0.6s ease-out; }
+        .animate-slide-left { animation: slideLeft 0.6s ease-out; }
+        .animate-zoom-in { animation: zoomIn 0.8s ease-out; }
+        .animate-scale-in { animation: scaleIn 0.4s ease-out; }
+        .animate-number-pop { animation: numberPop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .animate-grid-pop { animation: gridPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .animate-bounce-subtle { animation: bounceSubtle 2s ease-in-out infinite; }
+        .animate-pulse-glow { animation: pulseGlow 2s ease-in-out infinite; }
+        .animate-pulse-slow { animation: pulseSlow 3s ease-in-out infinite; }
+        .animate-expand { animation: expand 0.8s ease-out; }
+        .animate-spin-slow { animation: spinSlow 8s linear infinite; }
+        .animate-spin-slow-reverse { animation: spinSlowReverse 12s linear infinite; }
+        .animate-prize-win { animation: prizeWin 1s ease-in-out; }
+        .animate-title-glow { animation: titleGlow 2s ease-in-out infinite; }
+        .animate-winner-slide { animation: winnerSlide 0.6s ease-out; }
+        .animate-confetti-1 { animation: confetti1 3s ease-in-out infinite; }
+        .animate-confetti-2 { animation: confetti2 3.5s ease-in-out infinite; }
+        .animate-confetti-3 { animation: confetti3 4s ease-in-out infinite; }
+
+        .animate-text-shine {
+            background: linear-gradient(90deg, 
+                rgba(255,255,255,0.8) 0%, 
+                rgba(255,255,255,1) 50%, 
+                rgba(255,255,255,0.8) 100%
+            );
+            background-size: 200% auto;
+            background-clip: text;
+            -webkit-background-clip: text;
+            animation: textShine 3s linear infinite;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        @media (max-width: 1279px) {
+            html {
+                -webkit-text-size-adjust: 100%;
+                touch-action: manipulation;
+            }
+        }
+
+        .touch-device {
+            -webkit-overflow-scrolling: touch;
         }
     </style>
 </div>

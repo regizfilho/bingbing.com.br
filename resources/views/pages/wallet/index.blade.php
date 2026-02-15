@@ -10,8 +10,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 new #[Layout('layouts.app')] class extends Component {
-    public ?string $param = null; // Parâmetro da URL (success, cancel, etc)
-    
+    public bool $isProcessing = false;
+
+    public ?string $param = null;
     public ?int $selectedPackageId = null;
     public bool $showConfirmation = false;
 
@@ -22,18 +23,11 @@ new #[Layout('layouts.app')] class extends Component {
     public function mount(?string $param = null): void
     {
         $this->param = $param;
-        
-        // Mostrar mensagem de sucesso se vier do Stripe
+
         if ($param === 'success') {
-            $this->dispatch('notify', 
-                type: 'success', 
-                text: '🎉 Pagamento confirmado! Seus créditos foram adicionados à sua carteira.'
-            );
+            $this->dispatch('notify', type: 'success', text: '🎉 Pagamento confirmado!');
         } elseif ($param === 'cancel') {
-            $this->dispatch('notify', 
-                type: 'warning', 
-                text: 'Pagamento cancelado. Você pode tentar novamente quando quiser.'
-            );
+            $this->dispatch('notify', type: 'warning', text: 'Pagamento cancelado.');
         }
     }
 
@@ -47,6 +41,30 @@ new #[Layout('layouts.app')] class extends Component {
     public function walletBalance()
     {
         return $this->user?->wallet?->balance ?? 0;
+    }
+
+    #[Computed]
+    public function walletStats(): array
+    {
+        $wallet = $this->user?->wallet;
+        
+        if (!$wallet) {
+            return [
+                'total_transactions' => 0,
+                'total_earned' => 0,
+                'total_spent' => 0,
+                'last_transaction' => null,
+            ];
+        }
+
+        $transactions = $wallet->transactions();
+
+        return [
+            'total_transactions' => $transactions->count(),
+            'total_earned' => $transactions->where('type', 'credit')->sum('amount'),
+            'total_spent' => $transactions->where('type', 'debit')->sum('amount'),
+            'last_transaction' => $transactions->latest()->first(),
+        ];
     }
 
     #[Computed]
@@ -67,34 +85,15 @@ new #[Layout('layouts.app')] class extends Component {
         if (!$this->selectedPackage) {
             return 0;
         }
-
         return max(0, $this->selectedPackage->price_brl - $this->discountAmount);
-    }
-
-    #[Computed]
-    public function walletStats(): array
-    {
-        $wallet = $this->user?->wallet;
-        
-        if (!$wallet) {
-            return [
-                'total_transactions' => 0,
-                'total_spent' => 0,
-                'total_earned' => 0,
-                'last_transaction' => null,
-            ];
-        }
-
-        return [
-            'total_transactions' => $wallet->transactions()->count(),
-            'total_spent' => $wallet->transactions()->where('type', 'debit')->sum('amount'),
-            'total_earned' => $wallet->transactions()->where('type', 'credit')->sum('amount'),
-            'last_transaction' => $wallet->transactions()->latest()->first(),
-        ];
     }
 
     public function selectPackage(int $packageId): void
     {
+        if ($this->isProcessing) {
+            return;
+        }
+
         $this->reset(['couponCode', 'appliedCoupon', 'discountAmount']);
         $this->selectedPackageId = $packageId;
         $this->showConfirmation = true;
@@ -103,6 +102,10 @@ new #[Layout('layouts.app')] class extends Component {
 
     public function cancelPurchase(): void
     {
+        if ($this->isProcessing) {
+            return;
+        }
+
         $this->selectedPackageId = null;
         $this->showConfirmation = false;
         $this->reset(['couponCode', 'appliedCoupon', 'discountAmount']);
@@ -111,61 +114,94 @@ new #[Layout('layouts.app')] class extends Component {
 
     public function applyCoupon(): void
     {
-        $this->validate([
-            'couponCode' => 'required|string|min:3',
-        ], [
-            'couponCode.required' => 'Digite um código de cupom.',
-            'couponCode.min' => 'Código inválido.',
-        ]);
-
-        if (!$this->selectedPackage) {
-            $this->dispatch('notify', type: 'error', text: 'Selecione um pacote primeiro.');
+        if ($this->isProcessing) {
             return;
         }
 
+        $this->validate([
+            'couponCode' => 'required|string|min:3',
+        ], [
+            'couponCode.required' => 'Digite um código de cupom',
+            'couponCode.min' => 'Código inválido',
+        ]);
+
         try {
-            $coupon = Coupon::where('code', strtoupper(trim($this->couponCode)))->first();
+            $coupon = Coupon::where('code', strtoupper(trim($this->couponCode)))
+                ->where('is_active', true)
+                ->where(function ($q) {
+                    $q->whereNull('expires_at')
+                      ->orWhere('expires_at', '>', now());
+                })
+                ->first();
 
             if (!$coupon) {
-                $this->addError('couponCode', 'Cupom não encontrado.');
-                $this->dispatch('notify', type: 'error', text: 'Cupom não encontrado.');
+                $this->addError('couponCode', 'Cupom inválido ou expirado');
                 return;
             }
 
-            $validation = $coupon->validateForUser($this->user, $this->selectedPackage->price_brl);
-
-            if ($validation !== true) {
-                $this->addError('couponCode', $validation);
-                $this->dispatch('notify', type: 'error', text: $validation);
+            // Verifica uso máximo
+            if ($coupon->max_uses && $coupon->used_count >= $coupon->max_uses) {
+                $this->addError('couponCode', 'Cupom esgotado');
                 return;
             }
 
-            $this->discountAmount = $coupon->type === 'percent' 
-                ? ($this->selectedPackage->price_brl * $coupon->value) / 100 
-                : $coupon->value;
+            // Verifica se usuário já usou
+            if ($coupon->max_uses_per_user) {
+                $userUses = CouponUser::where('coupon_id', $coupon->id)
+                    ->where('user_id', $this->user->id)
+                    ->count();
+                
+                if ($userUses >= $coupon->max_uses_per_user) {
+                    $this->addError('couponCode', 'Você já usou este cupom');
+                    return;
+                }
+            }
 
-            // Não pode dar desconto maior que o valor do pacote
+            // Verifica valor mínimo
+            if ($coupon->min_purchase_amount && $this->selectedPackage->price_brl < $coupon->min_purchase_amount) {
+                $this->addError('couponCode', 'Valor mínimo: R$ ' . number_format($coupon->min_purchase_amount, 2, ',', '.'));
+                return;
+            }
+
+            // Calcula desconto
+            if ($coupon->discount_type === 'percentage') {
+                $this->discountAmount = ($this->selectedPackage->price_brl * $coupon->discount_value) / 100;
+            } else {
+                $this->discountAmount = $coupon->discount_value;
+            }
+
+            // Limita ao valor do produto
             $this->discountAmount = min($this->discountAmount, $this->selectedPackage->price_brl);
 
             $this->appliedCoupon = $coupon;
+            $this->dispatch('notify', type: 'success', text: '🎫 Cupom aplicado com sucesso!');
 
-            $this->dispatch('notify', type: 'success', text: "Cupom aplicado! Desconto de R$ " . number_format($this->discountAmount, 2, ',', '.'));
         } catch (\Exception $e) {
-            $this->dispatch('notify', type: 'error', text: 'Erro ao aplicar cupom.');
+            $this->addError('couponCode', 'Erro ao validar cupom');
         }
     }
 
     public function removeCoupon(): void
     {
+        if ($this->isProcessing) {
+            return;
+        }
+
         $this->reset(['couponCode', 'appliedCoupon', 'discountAmount']);
-        $this->resetValidation();
-        $this->dispatch('notify', type: 'info', text: 'Cupom removido.');
+        $this->dispatch('notify', type: 'info', text: 'Cupom removido');
     }
 
     public function confirmPurchase(): void
     {
+        if ($this->isProcessing) {
+            return;
+        }
+
+        $this->isProcessing = true;
+
         if (!$this->selectedPackage) {
             $this->dispatch('notify', type: 'error', text: 'Pacote inválido.');
+            $this->isProcessing = false;
             return;
         }
 
@@ -173,15 +209,17 @@ new #[Layout('layouts.app')] class extends Component {
             DB::transaction(function () {
                 $wallet = $this->user->wallet ?: $this->user->wallet()->create(['balance' => 0]);
 
+                $wallet->refresh();
+
                 $originalAmount = $this->selectedPackage->price_brl;
                 $discountAmount = $this->discountAmount;
                 $finalAmount = $this->finalPrice;
 
-                // Atualizar saldo
+                $wallet = $wallet->lockForUpdate()->first();
+
                 $wallet->balance += $this->selectedPackage->credits;
                 $wallet->save();
 
-                // Criar transação COM package_id
                 $transaction = $wallet->transactions()->create([
                     'uuid' => Str::uuid(),
                     'type' => 'credit',
@@ -198,7 +236,6 @@ new #[Layout('layouts.app')] class extends Component {
                     'final_amount' => $finalAmount,
                 ]);
 
-                // Registrar uso do cupom
                 if ($this->appliedCoupon) {
                     CouponUser::create([
                         'coupon_id' => $this->appliedCoupon->id,
@@ -211,49 +248,23 @@ new #[Layout('layouts.app')] class extends Component {
 
                     $this->appliedCoupon->increment('used_count');
                 }
-
-                // Enviar email de confirmação
-                $this->user->notify(new \App\Notifications\CreditPurchaseNotification($transaction));
-
-                // Notificação Push
-                $pushService = app(\App\Services\PushNotificationService::class);
-                
-                if ($discountAmount > 0) {
-                    $message = [
-                        'title' => '🎉 Recarga Concluída com Desconto!',
-                        'body' => "Você ganhou {$this->selectedPackage->credits} créditos com desconto de R$ " . number_format($discountAmount, 2, ',', '.') . "!",
-                    ];
-                } else {
-                    $message = \App\Services\NotificationMessages::creditPurchase(
-                        $this->selectedPackage->credits,
-                        $this->selectedPackage->name
-                    );
-                }
-
-                $pushService->notifyUser(
-                    $this->user->id,
-                    $message['title'],
-                    $message['body'],
-                    route('wallet.transactions')
-                );
             });
 
-            $message = "Recarga realizada! +{$this->selectedPackage->credits} créditos adicionados";
-            if ($this->discountAmount > 0) {
-                $message .= " com desconto de R$ " . number_format($this->discountAmount, 2, ',', '.');
-            }
-            $message .= ". Verifique seu email!";
-
-            $this->dispatch('notify', type: 'success', text: $message);
+            $this->dispatch('notify', type: 'success', text: 'Recarga realizada com sucesso!');
             $this->cancelPurchase();
-        } catch (\Exception $e) {
+            
+            // Atualiza estatísticas
+            unset($this->walletStats);
+            
+        } catch (\Throwable $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro na transação: ' . $e->getMessage());
+        } finally {
+            $this->isProcessing = false;
         }
     }
 };
 ?>
 
-{{-- O resto do HTML permanece igual, apenas adicione um banner de sucesso opcional --}}
 
 <div class="min-h-screen bg-[#05070a] text-slate-200 pb-24 selection:bg-blue-500/30 overflow-x-hidden relative">
 
@@ -263,25 +274,31 @@ new #[Layout('layouts.app')] class extends Component {
     {{-- Efeitos de Fundo --}}
     <div class="fixed top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
         <div class="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-blue-600/10 blur-[120px] rounded-full"></div>
-        <div class="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-cyan-500/5 blur-[100px] rounded-full"></div>
+        <div class="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] bg-cyan-500/5 blur-[100px] rounded-full">
+        </div>
     </div>
 
     <div class="max-w-6xl mx-auto px-6 pt-16">
 
         {{-- Banner de Sucesso (aparece apenas quando param=success) --}}
-        @if($param === 'success')
+        @if ($param === 'success')
             <div class="mb-12 animate-in fade-in slide-in-from-top duration-500" x-data="{ show: true }" x-show="show">
-                <div class="relative bg-gradient-to-r from-emerald-600/10 to-emerald-500/10 border border-emerald-500/30 rounded-3xl p-8 overflow-hidden">
-                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-600 to-emerald-400"></div>
-                    
-                    <button @click="show = false" class="absolute top-4 right-4 text-emerald-400 hover:text-white transition">
+                <div
+                    class="relative bg-gradient-to-r from-emerald-600/10 to-emerald-500/10 border border-emerald-500/30 rounded-3xl p-8 overflow-hidden">
+                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-600 to-emerald-400">
+                    </div>
+
+                    <button @click="show = false"
+                        class="absolute top-4 right-4 text-emerald-400 hover:text-white transition">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
                     </button>
 
                     <div class="flex items-start gap-6">
-                        <div class="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center flex-shrink-0 text-4xl">
+                        <div
+                            class="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center flex-shrink-0 text-4xl">
                             🎉
                         </div>
                         <div class="flex-1">
@@ -289,22 +306,28 @@ new #[Layout('layouts.app')] class extends Component {
                                 Pagamento Confirmado!
                             </h3>
                             <p class="text-sm text-slate-300 leading-relaxed mb-4">
-                                Sua compra foi processada com sucesso e os créditos já estão disponíveis na sua carteira. 
+                                Sua compra foi processada com sucesso e os créditos já estão disponíveis na sua
+                                carteira.
                                 Enviamos um email de confirmação com todos os detalhes da transação.
                             </p>
                             <div class="flex flex-wrap gap-3">
-                                <a href="{{ route('games.create') }}" 
+                                <a href="{{ route('games.create') }}"
                                     class="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z">
+                                        </path>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                                     </svg>
                                     Começar a Jogar
                                 </a>
-                                <a href="{{ route('wallet.transactions') }}" 
+                                <a href="{{ route('wallet.transactions') }}"
                                     class="inline-flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                                        </path>
                                     </svg>
                                     Ver Extrato
                                 </a>
@@ -709,11 +732,22 @@ new #[Layout('layouts.app')] class extends Component {
                     </div>
 
                     <div class="space-y-4 mt-8">
-                        <button wire:click="confirmPurchase" wire:loading.attr="disabled"
-                            class="w-full py-7 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-[2.2rem] text-[11px] font-black uppercase tracking-[0.5em] italic transition-all shadow-2xl active:scale-95">
-                            <span wire:loading.remove wire:target="confirmPurchase">CONFIRMAR COMPRA</span>
-                            <span wire:loading wire:target="confirmPurchase">PROCESSANDO...</span>
+                        <button wire:click="confirmPurchase" wire:loading.attr="disabled" @disabled($isProcessing)
+                            class="w-full py-7 bg-blue-600 hover:bg-blue-500 
+           disabled:bg-blue-900 disabled:opacity-50
+           text-white rounded-[2.2rem] text-[11px] 
+           font-black uppercase tracking-[0.5em] italic 
+           transition-all shadow-2xl active:scale-95">
+
+                            <span wire:loading.remove wire:target="confirmPurchase">
+                                {{ $isProcessing ? 'PROCESSANDO...' : 'CONFIRMAR COMPRA' }}
+                            </span>
+
+                            <span wire:loading wire:target="confirmPurchase">
+                                PROCESSANDO...
+                            </span>
                         </button>
+
                         <button wire:click="cancelPurchase" wire:loading.attr="disabled"
                             class="w-full py-5 bg-transparent text-slate-600 hover:text-white rounded-[2rem] text-[9px] font-black uppercase tracking-[0.3em] italic transition-all border border-white/5 hover:border-white/10 disabled:opacity-50">
                             CANCELAR

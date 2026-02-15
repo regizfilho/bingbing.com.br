@@ -102,17 +102,24 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
 
     public function purchaseGiftCard(): void
     {
+        if ($this->isProcessing) {
+            return;
+        } // 🔒 HARD LOCK
+        $this->isProcessing = true;
+
         $this->validate(['selectedCreditValue' => 'required|integer|min:100']);
 
         try {
             DB::transaction(function () {
                 $wallet = $this->user->wallet ?? $this->user->wallet()->create(['balance' => 0]);
 
+                // 🔐 Lock pessimista
+                $wallet = $wallet->lockForUpdate()->first();
+
                 if ($wallet->balance < $this->selectedPrice) {
                     throw new \Exception('Saldo insuficiente para comprar o Gift Card.');
                 }
 
-                // Criar Gift Card
                 $giftCard = GiftCard::create([
                     'uuid' => Str::uuid(),
                     'code' => GiftCard::generateUniqueCode(),
@@ -125,13 +132,10 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
                     'expires_at' => now()->addYear(),
                 ]);
 
-                // Debitar da wallet
                 $wallet->debit($this->selectedPrice, "Gift Card: {$giftCard->code}", $giftCard);
 
-                // 🔥 ENVIAR EMAIL
                 $this->user->notify(new \App\Notifications\GiftCardPurchaseNotification($giftCard));
 
-                // Push
                 $pushService = app(\App\Services\PushNotificationService::class);
                 $message = \App\Services\NotificationMessages::giftCardPurchased($giftCard->code, $this->selectedCreditValue);
 
@@ -141,42 +145,48 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
             });
 
             $this->cancelPurchase();
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $this->dispatch('notify', type: 'error', text: $e->getMessage());
+        } finally {
+            $this->isProcessing = false; // 🔓 sempre libera
         }
     }
 
     public function redeemGiftCard(): void
     {
+        if ($this->isProcessing) {
+            return;
+        } // 🔒 HARD LOCK
+        $this->isProcessing = true;
+
         $this->validate(['redeemCode' => 'required|string|size:14']);
 
         try {
             DB::transaction(function () {
                 $code = strtoupper(trim($this->redeemCode));
 
-                $giftCard = GiftCard::where('code', $code)->first();
+                $giftCard = GiftCard::where('code', $code)->lockForUpdate()->first();
 
                 if (!$giftCard) {
                     throw new \Exception('Gift Card não encontrado.');
                 }
 
                 if (!$giftCard->canBeRedeemed()) {
-                    throw new \Exception('Este Gift Card não pode ser resgatado (já usado ou expirado).');
+                    throw new \Exception('Este Gift Card não pode ser resgatado.');
                 }
 
                 $wallet = $this->user->wallet ?? $this->user->wallet()->create(['balance' => 0]);
 
-                // Creditar na wallet
+                $wallet = $wallet->lockForUpdate()->first();
+
                 $wallet->credit($giftCard->credit_value, "Gift Card resgatado: {$giftCard->code}", $giftCard);
 
-                // Marcar como resgatado
                 $giftCard->update([
                     'status' => 'redeemed',
                     'redeemed_by_user_id' => $this->user->id,
                     'redeemed_at' => now(),
                 ]);
 
-                // Criar registro de resgate
                 $giftCard->redemptions()->create([
                     'uuid' => Str::uuid(),
                     'user_id' => $this->user->id,
@@ -185,17 +195,19 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
                     'user_agent' => request()->userAgent(),
                 ]);
 
-                // Notificação Push
                 $pushService = app(\App\Services\PushNotificationService::class);
                 $message = \App\Services\NotificationMessages::giftCardRedeemed($giftCard->code, $giftCard->credit_value);
 
                 $pushService->notifyUser($this->user->id, $message['title'], $message['body'], route('wallet.index'));
 
                 $this->dispatch('notify', type: 'success', text: "Gift Card resgatado! +{$giftCard->credit_value} créditos.");
+
                 $this->reset('redeemCode');
             });
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $this->dispatch('notify', type: 'error', text: $e->getMessage());
+        } finally {
+            $this->isProcessing = false; // 🔓 sempre libera
         }
     }
 
@@ -574,11 +586,21 @@ new #[Layout('layouts.app')] #[Title('Gift Cards')] class extends Component {
                     </div>
 
                     <div class="space-y-4">
-                        <button wire:click="purchaseGiftCard" {{ $this->canPurchase ? '' : 'disabled' }}
+                        <button wire:click="purchaseGiftCard" wire:loading.attr="disabled"
+                            @disabled(!$this->canPurchase || $isProcessing)
                             class="w-full py-7 rounded-[2.2rem] text-[11px] font-black uppercase tracking-[0.5em] italic transition-all shadow-2xl active:scale-95
-                            {{ $this->canPurchase ? 'bg-purple-600 hover:bg-purple-500 text-white' : 'bg-white/5 text-slate-700 cursor-not-allowed' }}">
-                            {{ $this->canPurchase ? 'CONFIRMAR COMPRA' : 'SALDO INSUFICIENTE' }}
+    {{ $this->canPurchase ? 'bg-purple-600 hover:bg-purple-500 text-white' : 'bg-white/5 text-slate-700 cursor-not-allowed' }}
+    disabled:opacity-50">
+
+                            <span wire:loading.remove wire:target="purchaseGiftCard">
+                                {{ $isProcessing ? 'PROCESSANDO...' : ($this->canPurchase ? 'CONFIRMAR COMPRA' : 'SALDO INSUFICIENTE') }}
+                            </span>
+
+                            <span wire:loading wire:target="purchaseGiftCard">
+                                PROCESSANDO...
+                            </span>
                         </button>
+
                         <button wire:click="cancelPurchase"
                             class="w-full py-5 bg-transparent text-slate-600 hover:text-white rounded-[2rem] text-[9px] font-black uppercase tracking-[0.3em] italic transition-all border border-white/5 hover:border-white/10">
                             CANCELAR

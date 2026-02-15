@@ -31,4 +31,4 @@ Também deixei em formato mais técnico, pensando em arquitetura limpa (sei que 
 
 ---------------------------------------
 Adicionar SOM, voz.
-Ajustar tela display
+

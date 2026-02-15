@@ -6,10 +6,13 @@ use Livewire\Component;
 use App\Models\Game\GamePackage;
 use App\Models\Game\Game;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
 
 new #[Layout('layouts.app')] class extends Component {
+    public bool $isCreating = false;
+
     #[Validate('required|min:3|max:255')]
     public string $name = '';
 
@@ -77,7 +80,7 @@ new #[Layout('layouts.app')] class extends Component {
     #[Computed]
     public function packages()
     {
-        return GamePackage::active()->get();
+        return Cache::remember('game_packages_active', 3600, fn() => GamePackage::active()->orderBy('cost_credits', 'asc')->get());
     }
 
     #[Computed]
@@ -87,15 +90,216 @@ new #[Layout('layouts.app')] class extends Component {
     }
 
     #[Computed]
+    public function usageStats(): array
+    {
+        $key = 'user_game_stats_' . $this->user->id;
+        return Cache::remember($key, 300, function () {
+            $userId = $this->user->id;
+            $today = now()->startOfDay();
+            $monthStart = now()->startOfMonth();
+
+            return [
+                'free_today' => Game::where('creator_id', $userId)->whereHas('package', fn($q) => $q->where('is_free', true))->where('created_at', '>=', $today)->count(),
+                'free_month' => Game::where('creator_id', $userId)->whereHas('package', fn($q) => $q->where('is_free', true))->where('created_at', '>=', $monthStart)->count(),
+                'paid_today' => Game::where('creator_id', $userId)->whereHas('package', fn($q) => $q->where('is_free', false))->where('created_at', '>=', $today)->count(),
+            ];
+        });
+    }
+
+    #[Computed]
+    public function packageType(): ?string
+    {
+        if (!$this->selectedPackage) {
+            return null;
+        }
+
+        $name = strtolower($this->selectedPackage->name);
+
+        if ($this->selectedPackage->is_free) {
+            return 'free';
+        }
+        if (str_contains($name, 'básico') || str_contains($name, 'basico')) {
+            return 'basic';
+        }
+        if (str_contains($name, 'premium')) {
+            return 'premium';
+        }
+        if (str_contains($name, 'vip')) {
+            return 'vip';
+        }
+
+        return 'basic';
+    }
+
+    #[Computed]
+    public function packageRestrictions(): array
+    {
+        if (!$this->selectedPackage) {
+            return [];
+        }
+
+        $pkg = $this->selectedPackage;
+        $type = $this->packageType();
+        $features = $pkg->features ?? [];
+
+        $allowAutoDraw = !$pkg->is_free || str_contains(implode(' ', $features), 'automático');
+        $allowPrizeAutoClaim = !$pkg->is_free;
+        $allowPublicDisplay = true;
+        $showBranding = $pkg->is_free;
+        $allowCustomBranding = in_array($type, ['premium', 'vip']);
+        $prioritySupport = $type === 'vip';
+        $advancedAnalytics = $type === 'vip';
+
+        return [
+            'max_players' => $pkg->max_players,
+            'max_rounds' => $pkg->max_rounds,
+            'max_cards_per_player' => $pkg->max_cards_per_player,
+            'allow_auto_draw' => $allowAutoDraw,
+            'allow_public_display' => $allowPublicDisplay,
+            'allow_prize_auto_claim' => $allowPrizeAutoClaim,
+            'show_branding' => $showBranding,
+            'allow_custom_branding' => $allowCustomBranding,
+            'priority_support' => $prioritySupport,
+            'advanced_analytics' => $advancedAnalytics,
+        ];
+    }
+
+    #[Computed]
+    public function dailyLimitReached(): bool
+    {
+        if (!$this->selectedPackage) {
+            return false;
+        }
+
+        $info = $this->packageLimitInfo[$this->selectedPackage->id] ?? [];
+        return ($info['remaining_today'] ?? 0) <= 0;
+    }
+
+    #[Computed]
+    public function monthlyLimitReached(): bool
+    {
+        if (!$this->selectedPackage) {
+            return false;
+        }
+
+        $info = $this->packageLimitInfo[$this->selectedPackage->id] ?? [];
+        $remainingMonth = max(0, $info['limit_month'] - $info['used_month']);
+        return $remainingMonth <= 0 && $info['limit_month'] !== 9999;
+    }
+
+    #[Computed]
     public function canCreate(): bool
     {
         if (!$this->selectedPackage || !$this->user) {
             return false;
         }
-        if ($this->selectedPackage->is_free) {
+
+        if ($this->dailyLimitReached() || $this->monthlyLimitReached()) {
+            return false;
+        }
+
+        if (!$this->selectedPackage->is_free) {
+            return (float) $this->walletBalance >= (float) $this->selectedPackage->cost_credits;
+        }
+
+        return true;
+    }
+
+    #[Computed]
+    public function limitMessage(): ?string
+    {
+        if (!$this->selectedPackage) {
+            return null;
+        }
+
+        $info = $this->packageLimitInfo[$this->selectedPackage->id] ?? [];
+        $remainingToday = $info['remaining_today'] ?? 0;
+        $remainingMonth = max(0, $info['limit_month'] - $info['used_month']);
+        $usedToday = $info['used_today'] ?? 0;
+        $limitToday = $info['limit_today'] ?? 0;
+        $usedMonth = $info['used_month'] ?? 0;
+        $limitMonth = $info['limit_month'] ?? 0;
+
+        if ($remainingToday <= 0) {
+            return "⏰ Limite diário atingido ({$usedToday}/{$limitToday} salas). Faça upgrade.";
+        }
+
+        if ($remainingMonth <= 0 && $limitMonth !== 9999) {
+            return "📅 Limite mensal atingido ({$usedMonth}/{$limitMonth} salas). Faça upgrade.";
+        }
+
+        if ($remainingToday === 1) {
+            return "⚡ Última sala disponível do dia!";
+        }
+
+        if ($remainingMonth <= 3 && $limitMonth !== 9999) {
+            return "⚠️ Restam apenas {$remainingMonth} salas este mês.";
+        }
+
+        return null;
+    }
+
+    #[Computed]
+    public function economyMessage(): ?string
+    {
+        if (!$this->selectedPackage) {
+            return null;
+        }
+
+        $stats = $this->usageStats;
+        $totalPaidToday = $stats['paid_today'];
+
+        $packages = $this->packages->keyBy('slug');
+
+        // Basic -> Premium
+        if ($this->packageType === 'basic' && isset($packages['premium'])) {
+            $basicCost = $this->selectedPackage->cost_credits;
+            $premiumCost = $packages['premium']->cost_credits;
+
+            $spent = $totalPaidToday * $basicCost;
+            $savings = $spent - $premiumCost;
+
+            if ($savings > 0) {
+                return "💡 Você já gastou C$ {$spent}. Premium sairia C$ {$savings} mais barato.";
+            }
+        }
+
+        // Premium -> VIP
+        if ($this->packageType === 'premium' && isset($packages['vip'])) {
+            $premiumCost = $this->selectedPackage->cost_credits;
+            $vipCost = $packages['vip']->cost_credits;
+
+            $spent = $totalPaidToday * $premiumCost;
+            $savings = $spent - $vipCost;
+
+            if ($savings > 0) {
+                return "🔥 Você já gastou C$ {$spent}. VIP ilimitado custa C$ {$vipCost}.";
+            }
+        }
+
+        return null;
+    }
+
+    #[Computed]
+    public function showUpgradeIncentive(): bool
+    {
+        if (!$this->selectedPackage) {
+            return false;
+        }
+
+        $stats = $this->usageStats;
+
+        // Mostra incentivo se usuário grátis criou mais de 8 salas no mês
+        if ($this->selectedPackage->is_free && $stats['free_month'] >= 8) {
             return true;
         }
-        return (float) $this->walletBalance >= (float) $this->selectedPackage->cost_credits;
+
+        // Mostra se usuário básico criou mais de 3 salas hoje
+        if ($this->packageType === 'basic' && $stats['paid_today'] >= 3) {
+            return true;
+        }
+
+        return false;
     }
 
     public function mount(): void
@@ -114,8 +318,20 @@ new #[Layout('layouts.app')] class extends Component {
     public function updatedGamePackageId(): void
     {
         if ($package = $this->selectedPackage) {
-            $this->max_rounds = (int) $package->max_rounds;
-            $this->cards_per_player = (int) ($package->cards_per_player ?? 1);
+            $restrictions = $this->packageRestrictions;
+
+            $this->max_rounds = min((int) $package->max_rounds, $restrictions['max_rounds'] ?? 1);
+            $this->cards_per_player = min((int) ($package->cards_per_player ?? 1), $restrictions['max_cards_per_player'] ?? 1);
+
+            // Desabilita sorteio automático se não permitido
+            if (!$restrictions['allow_auto_draw'] && $this->draw_mode === 'automatic') {
+                $this->draw_mode = 'manual';
+            }
+
+            // Desabilita auto-claim se não permitido
+            if (!$restrictions['allow_prize_auto_claim']) {
+                $this->auto_claim_prizes = false;
+            }
 
             $allowed = !empty($package->allowed_card_sizes) ? array_map('intval', (array) $package->allowed_card_sizes) : [9, 15, 24];
 
@@ -140,55 +356,158 @@ new #[Layout('layouts.app')] class extends Component {
 
     public function create(): void
     {
+        if ($this->isCreating) {
+            return;
+        }
+
+        $this->isCreating = true;
+
         try {
+            if (!$this->canCreate) {
+                $msg = $this->limitMessage ?? 'Não foi possível criar a sala.';
+                $this->dispatch('notify', type: 'warning', text: $msg);
+                $this->isCreating = false;
+                return;
+            }
+
             $this->validate();
 
             $game = DB::transaction(function () {
+                $package = GamePackage::active()->where('id', $this->game_package_id)->lockForUpdate()->firstOrFail();
+
+                $user = auth()->user()->lockForUpdate()->first();
+
+                // Revalida limites com query fresca
+                $today = now()->startOfDay();
+                $monthStart = now()->startOfMonth();
+                $usedToday = Game::where('creator_id', $user->id)->where('game_package_id', $package->id)->where('created_at', '>=', $today)->count();
+                $usedMonth = Game::where('creator_id', $user->id)->where('game_package_id', $package->id)->where('created_at', '>=', $monthStart)->count();
+
+                if ($usedToday >= $package->daily_limit) {
+                    throw new \Exception('Limite diário atingido.');
+                }
+
+                if ($usedMonth >= $package->monthly_limit && $package->monthly_limit !== 9999) {
+                    throw new \Exception('Limite mensal atingido.');
+                }
+
+                if (!$package->is_free && $user->wallet->balance < $package->cost_credits) {
+                    throw new \Exception('Saldo insuficiente.');
+                }
+
+                $restrictions = $this->packageRestrictions;
+
+                $allowedCardSizes = !empty($package->allowed_card_sizes) ? array_map('intval', (array) $package->allowed_card_sizes) : [9, 15, 24];
+
+                if (!in_array($this->card_size, $allowedCardSizes)) {
+                    throw new \Exception('Tamanho de cartela inválido.');
+                }
+
+                $maxRounds = min((int) $this->max_rounds, (int) $package->max_rounds, $restrictions['max_rounds'] ?? 1);
+                $cardsPerPlayer = min((int) $this->cards_per_player, (int) ($package->max_cards_per_player ?? 10), $restrictions['max_cards_per_player'] ?? 10);
+
+                // Valida sorteio automático
+                $drawMode = $this->draw_mode;
+                if ($drawMode === 'automatic' && !$restrictions['allow_auto_draw']) {
+                    $drawMode = 'manual';
+                }
+
+                // Valida auto-claim
+                $autoClaimPrizes = $this->auto_claim_prizes && $restrictions['allow_prize_auto_claim'];
+
+                $validPrizes = array_values(array_filter($this->prizes, fn($p) => !empty($p['name'])));
+                $prizesPerRound = min((int) $this->prizes_per_round, count($validPrizes));
+
+                if ($prizesPerRound < 1) {
+                    throw new \Exception('É necessário ao menos um prêmio válido.');
+                }
+
                 $game = Game::create([
-                    'creator_id' => $this->user->id,
-                    'game_package_id' => $this->game_package_id,
-                    'name' => $this->name,
-                    'draw_mode' => $this->draw_mode,
-                    'auto_draw_seconds' => $this->draw_mode === 'automatic' ? $this->auto_draw_seconds ?? 3 : null,
+                    'creator_id' => $user->id,
+                    'game_package_id' => $package->id,
+                    'name' => trim($this->name),
+                    'draw_mode' => $drawMode,
+                    'auto_draw_seconds' => $drawMode === 'automatic' ? max(1, min((int) $this->auto_draw_seconds, 60)) : null,
                     'card_size' => $this->card_size,
-                    'cards_per_player' => $this->cards_per_player,
-                    'prizes_per_round' => $this->prizes_per_round,
-                    'show_drawn_to_players' => $this->show_drawn_to_players,
-                    'show_player_matches' => $this->show_player_matches,
-                    'auto_claim_prizes' => $this->auto_claim_prizes,
-                    'max_rounds' => min($this->max_rounds, $this->selectedPackage->max_rounds),
+                    'cards_per_player' => $cardsPerPlayer,
+                    'prizes_per_round' => $prizesPerRound,
+                    'show_drawn_to_players' => (bool) $this->show_drawn_to_players,
+                    'show_player_matches' => (bool) $this->show_player_matches,
+                    'auto_claim_prizes' => $autoClaimPrizes,
+                    'max_rounds' => $maxRounds,
                     'current_round' => 1,
                     'status' => 'waiting',
                     'uuid' => (string) Str::uuid(),
                     'invite_code' => strtoupper(Str::random(10)),
                 ]);
 
-                foreach ($this->prizes as $index => $prize) {
+                foreach ($validPrizes as $index => $prize) {
                     $game->prizes()->create([
                         'uuid' => (string) Str::uuid(),
-                        'name' => $prize['name'],
-                        'description' => $prize['description'] ?? '',
+                        'name' => trim($prize['name']),
+                        'description' => trim($prize['description'] ?? ''),
                         'position' => $index + 1,
                     ]);
                 }
 
-                if (!$this->selectedPackage->is_free) {
-                    $this->user->wallet->debit($this->selectedPackage->cost_credits, "Arena: {$this->name}", $game);
+                if (!$package->is_free) {
+                    $user->wallet->debit($package->cost_credits, "Arena: {$this->name}", $game);
                 }
 
-                // 🎮 ENVIAR NOTIFICAÇÃO PUSH
-                $pushService = app(\App\Services\PushNotificationService::class);
-                $message = \App\Services\NotificationMessages::gameRoomCreated($this->name, $game->invite_code);
-
-                $pushService->notifyUser($this->user->id, $message['title'], $message['body'], route('games.edit', $game->uuid));
+                // Invalida caches
+                Cache::forget('user_game_stats_' . $user->id);
+                Cache::forget("user_game_usage_{$user->id}_{$package->id}_today");
+                Cache::forget("user_game_usage_{$user->id}_{$package->id}_month");
 
                 return $game;
             });
 
             $this->redirect(route('games.edit', $game->uuid));
-        } catch (\Exception $e) {
-            $this->dispatch('notify', type: 'error', text: 'Erro ao criar: ' . $e->getMessage());
+        } catch (\Throwable $e) {
+            $this->dispatch('notify', type: 'error', text: $e->getMessage());
+        } finally {
+            $this->isCreating = false;
         }
+    }
+
+    #[Computed]
+    public function packageLimitInfo(): array
+    {
+        return $this->packages
+            ->keyBy('id')
+            ->map(function ($package) {
+                $cacheToday = Cache::remember("user_game_usage_{$this->user->id}_{$package->id}_today", 300, fn() =>
+                    Game::where('creator_id', $this->user->id)
+                        ->where('game_package_id', $package->id)
+                        ->where('created_at', '>=', now()->startOfDay())
+                        ->count()
+                );
+
+                $cacheMonth = Cache::remember("user_game_usage_{$this->user->id}_{$package->id}_month", 3600, fn() =>
+                    Game::where('creator_id', $this->user->id)
+                        ->where('game_package_id', $package->id)
+                        ->where('created_at', '>=', now()->startOfMonth())
+                        ->count()
+                );
+
+                $usedToday = $cacheToday;
+                $usedMonth = $cacheMonth;
+                $limitToday = (int) $package->daily_limit;
+                $limitMonth = (int) $package->monthly_limit;
+                $remainingToday = max(0, $limitToday - $usedToday);
+                $remainingMonth = max(0, $limitMonth - $usedMonth);
+                $canCreate = $remainingToday > 0 && ($remainingMonth > 0 || $limitMonth === 9999);
+
+                return [
+                    'used_today' => $usedToday,
+                    'limit_today' => $limitToday,
+                    'remaining_today' => $remainingToday,
+                    'used_month' => $usedMonth,
+                    'limit_month' => $limitMonth,
+                    'can_create' => $canCreate,
+                ];
+            })
+            ->toArray();
     }
 };
 ?>
@@ -214,23 +533,47 @@ new #[Layout('layouts.app')] class extends Component {
                         <img src="{{ Storage::url($this->user->avatar_path) }}" class="w-full h-full object-cover">
                     @else
                         <div class="w-full h-full flex items-center justify-center font-black text-white text-xl">
-                            {{ substr($this->user->name, 0, 1) }}</div>
+                            {{ substr($this->user->name, 0, 1) }}
+                        </div>
                     @endif
                 </div>
                 <div>
                     <p class="text-[9px] font-black text-slate-600 uppercase mb-1">Seu Saldo</p>
-                    <div class="text-3xl font-black text-white italic tracking-tighter">C$
-                        {{ number_format($this->walletBalance, 0, ',', '.') }}</div>
+                    <div class="text-3xl font-black text-white italic tracking-tighter">
+                        C$ {{ number_format($this->walletBalance, 0, ',', '.') }}
+                    </div>
                 </div>
             </div>
         </div>
+
+        {{-- ALERTA DE LIMITES --}}
+        @if ($this->limitMessage)
+            <div
+                class="mb-8 bg-gradient-to-r from-orange-600/10 to-orange-500/10 border-2 border-orange-500/30 rounded-2xl p-6 animate-pulse">
+                <div class="flex items-start gap-4">
+                    <div class="text-3xl">⚠️</div>
+                    <div class="flex-1">
+                        <p class="text-orange-400 font-bold text-sm">{{ $this->limitMessage }}</p>
+                       @if (!$this->canCreate)
+                            <div class="mt-4 flex gap-3">
+                                <a href="{{ route('wallet.index') }}"
+                                    class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition">
+                                    💳 Recarregar Créditos
+                                </a>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        @endif
 
         <form wire:submit.prevent="create" class="space-y-12">
 
             {{-- NOME DA SALA --}}
             <div class="bg-[#0b0d11] border border-white/5 rounded-[3rem] p-10">
-                <label class="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-4 block">1. Nome da sua
-                    Sala</label>
+                <label class="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-4 block">
+                    1. Nome da sua Sala
+                </label>
                 <input type="text" wire:model.blur="name"
                     class="w-full bg-transparent border-b-2 border-white/10 text-white font-black uppercase italic tracking-tighter focus:border-blue-500 transition-all text-4xl p-0 pb-4 outline-none"
                     placeholder="DIGITE O NOME DA SALA...">
@@ -241,15 +584,47 @@ new #[Layout('layouts.app')] class extends Component {
 
             {{-- ESCOLHA DO PACOTE --}}
             <div class="space-y-6">
-                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-4">2. Escolha o tipo de
-                    sala</label>
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-4">
+                    2. Escolha o tipo de sala
+                </label>
+
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     @foreach ($this->packages as $package)
-                        @php $hasBalance = $package->is_free || ($this->walletBalance >= $package->cost_credits); @endphp
-                        <div wire:click="$set('game_package_id', '{{ $package->id }}')"
-                            class="cursor-pointer border-2 rounded-[2.5rem] p-8 transition-all relative overflow-hidden
-                            {{ !$hasBalance ? 'opacity-30 grayscale cursor-not-allowed bg-black' : '' }}
+                        @php
+                            $packageName = strtolower($package->name);
+                            $isFree = $package->is_free;
+                            $isBasic = str_contains($packageName, 'básico') || str_contains($packageName, 'basico');
+                            $isPremium = str_contains($packageName, 'premium');
+
+                            $info = $this->packageLimitInfo[$package->id] ?? null;
+
+                            if ($info) {
+                                $canUse = $info['can_create'];
+                                $remaining = $info['remaining_today'] ?? null;
+                                $usedToday = $info['used_today'] ?? null;
+                                $limitToday = $info['limit_today'] ?? null;
+                                $usedMonth = $info['used_month'] ?? null;
+                                $limitMonth = $info['limit_month'] ?? null;
+                            } else {
+                                $canUse = false;
+                            }
+
+                            $hasBalance = $isFree || $this->walletBalance >= $package->cost_credits;
+                        @endphp
+
+                        <div wire:click="@if ($canUse && $hasBalance) $set('game_package_id', '{{ $package->id }}') @endif"
+                            class="relative border-2 rounded-[2.5rem] p-8 transition-all overflow-hidden
+                            {{ !$canUse || !$hasBalance ? 'opacity-40 cursor-not-allowed bg-[#05070a]' : 'cursor-pointer' }}
                             {{ $game_package_id == $package->id ? 'border-blue-600 bg-blue-600/10' : 'border-white/5 bg-[#0b0d11] hover:border-white/20' }}">
+
+                            {{-- Badge de Limite --}}
+                            @if (isset($remaining))
+                                <div
+                                    class="absolute top-4 right-4 px-3 py-1 rounded-full text-[8px] font-black uppercase
+                                    {{ $remaining > 0 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30' }}">
+                                    {{ $remaining > 0 ? ($remaining === 1 ? 'Última hoje' : "Restam $remaining") : 'Limite atingido' }}
+                                </div>
+                            @endif
 
                             <div class="flex justify-between items-center mb-6">
                                 <span
@@ -258,9 +633,37 @@ new #[Layout('layouts.app')] class extends Component {
                                     <div class="w-3 h-3 bg-blue-500 rounded-full shadow-[0_0_10px_#3b82f6]"></div>
                                 @endif
                             </div>
+
                             <div class="text-4xl font-black text-white mb-6 italic">
                                 {{ $package->is_free ? 'GRÁTIS' : 'C$ ' . number_format($package->cost_credits, 0) }}
                             </div>
+
+                            {{-- Informações de Uso --}}
+                            @if (isset($usedToday, $limitToday))
+                                <div class="mb-6 p-4 bg-white/5 border border-white/10 rounded-xl space-y-2">
+                                    <div class="flex justify-between text-[9px] font-bold">
+                                        <span class="text-slate-400">Hoje:</span>
+                                        <span
+                                            class="{{ $usedToday >= $limitToday ? 'text-red-400' : 'text-emerald-400' }}">
+                                            {{ $usedToday }}/{{ $limitToday }}
+                                        </span>
+                                    </div>
+                                    <div class="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                        <div class="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
+                                            style="width: {{ min(100, ($usedToday / max(1, $limitToday)) * 100) }}%"></div>
+                                    </div>
+                                    @if (isset($usedMonth, $limitMonth) && $limitMonth !== 9999)
+                                    <div class="flex justify-between text-[9px] font-bold">
+                                        <span class="text-slate-400">Mês:</span>
+                                        <span
+                                            class="{{ $usedMonth >= $limitMonth ? 'text-red-400' : 'text-blue-400' }}">
+                                            {{ $usedMonth }}/{{ $limitMonth }}
+                                        </span>
+                                    </div>
+                                    @endif
+                                </div>
+                            @endif
+
                             <div class="space-y-2">
                                 @foreach ($package->features ?? [] as $feature)
                                     <p class="text-[9px] text-slate-400 font-bold uppercase flex items-center gap-2">
@@ -268,6 +671,26 @@ new #[Layout('layouts.app')] class extends Component {
                                     </p>
                                 @endforeach
                             </div>
+
+                            {{-- Overlay quando não pode usar --}}
+                            @if (!$canUse || !$hasBalance)
+                                <div
+                                    class="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center rounded-[2.5rem]">
+                                    <div class="text-center px-4">
+                                        @if (!$hasBalance)
+                                            <p class="text-red-400 text-xs font-black uppercase mb-2">💳 Saldo
+                                                Insuficiente</p>
+                                            <a href="{{ route('wallet.index') }}"
+                                                class="inline-block bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-[9px] font-black uppercase transition">
+                                                Recarregar
+                                            </a>
+                                        @else
+                                            <p class="text-orange-400 text-xs font-black uppercase">⏰ Limite Diário
+                                                Atingido</p>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endif
                         </div>
                     @endforeach
                 </div>
@@ -314,7 +737,9 @@ new #[Layout('layouts.app')] class extends Component {
                                     class="flex items-center justify-between p-5 rounded-2xl border transition-all
                                 {{ $this->{$toggle['m']} ? 'bg-blue-600/10 border-blue-600' : 'bg-[#05070a] border-white/5' }}">
                                     <span
-                                        class="text-[10px] font-black uppercase {{ $this->{$toggle['m']} ? 'text-blue-500' : 'text-slate-600' }}">{{ $toggle['t'] }}</span>
+                                        class="text-[10px] font-black uppercase {{ $this->{$toggle['m']} ? 'text-blue-500' : 'text-slate-600' }}">
+                                        {{ $toggle['t'] }}
+                                    </span>
                                     <div
                                         class="w-5 h-5 rounded-full border-2 {{ $this->{$toggle['m']} ? 'bg-blue-600 border-blue-400' : 'border-white/10' }}">
                                     </div>
@@ -327,15 +752,18 @@ new #[Layout('layouts.app')] class extends Component {
                     <div class="space-y-10">
                         <div class="bg-[#0b0d11] border border-white/5 rounded-[3rem] p-10">
                             <label
-                                class="text-[10px] font-black text-white uppercase tracking-widest mb-6 block text-center">Quantos
-                                números na cartela?</label>
+                                class="text-[10px] font-black text-white uppercase tracking-widest mb-6 block text-center">
+                                Quantos números na cartela?
+                            </label>
                             <div class="grid grid-cols-3 gap-4">
                                 @foreach ([9, 15, 24] as $size)
                                     <button type="button" wire:click="setCardSize({{ $size }})"
                                         class="aspect-square rounded-2xl border transition-all flex flex-col items-center justify-center
                                         {{ (int) $card_size === (int) $size ? 'bg-blue-600 border-blue-400 shadow-xl' : 'bg-[#05070a] border-white/5 text-slate-700' }}">
                                         <span
-                                            class="text-3xl font-black italic {{ (int) $card_size === (int) $size ? 'text-white' : 'text-slate-800' }}">{{ $size }}</span>
+                                            class="text-3xl font-black italic {{ (int) $card_size === (int) $size ? 'text-white' : 'text-slate-800' }}">
+                                            {{ $size }}
+                                        </span>
                                         <span class="text-[8px] font-black uppercase">Números</span>
                                     </button>
                                 @endforeach
@@ -344,13 +772,20 @@ new #[Layout('layouts.app')] class extends Component {
 
                         <div class="bg-[#0b0d11] border border-white/5 rounded-[3rem] p-8">
                             <label
-                                class="text-[10px] font-black text-white uppercase tracking-widest mb-4 block text-center">Como
-                                será o sorteio?</label>
+                                class="text-[10px] font-black text-white uppercase tracking-widest mb-4 block text-center">
+                                Como será o sorteio?
+                            </label>
                             <div class="flex bg-[#05070a] p-2 rounded-2xl gap-2">
                                 <button type="button" wire:click="$set('draw_mode', 'manual')"
-                                    class="flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all {{ $draw_mode === 'manual' ? 'bg-blue-600 text-white' : 'text-slate-600' }}">Manual</button>
+                                    class="flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all 
+                                    {{ $draw_mode === 'manual' ? 'bg-blue-600 text-white' : 'text-slate-600' }}">
+                                    Manual
+                                </button>
                                 <button type="button" wire:click="$set('draw_mode', 'automatic')"
-                                    class="flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all {{ $draw_mode === 'automatic' ? 'bg-blue-600 text-white' : 'text-slate-600' }}">Auto</button>
+                                    class="flex-1 py-3 rounded-xl text-[10px] font-black uppercase transition-all 
+                                    {{ $draw_mode === 'automatic' ? 'bg-blue-600 text-white' : 'text-slate-600' }}">
+                                    Auto
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -360,8 +795,9 @@ new #[Layout('layouts.app')] class extends Component {
                         <div class="flex justify-between items-center mb-10">
                             <h3 class="font-black text-white uppercase italic tracking-widest">🏆 Prêmios da Sala</h3>
                             <button type="button" wire:click="addPrize"
-                                class="text-blue-500 font-black text-[10px] uppercase border border-blue-500/30 px-4 py-2 rounded-xl hover:bg-blue-500 hover:text-white transition-all">+
-                                Adicionar</button>
+                                class="text-blue-500 font-black text-[10px] uppercase border border-blue-500/30 px-4 py-2 rounded-xl hover:bg-blue-500 hover:text-white transition-all">
+                                + Adicionar
+                            </button>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -387,13 +823,24 @@ new #[Layout('layouts.app')] class extends Component {
                 </div>
 
                 <div class="flex flex-col md:flex-row gap-6 pt-10">
-                    <button type="submit" {{ $this->canCreate ? '' : 'disabled' }}
+                    <button type="submit" wire:loading.attr="disabled" wire:target="create"
+                        @disabled(!$this->canCreate || $isCreating)
                         class="flex-[2] py-8 rounded-[2.5rem] font-black uppercase text-2xl italic transition-all 
-                        {{ $this->canCreate ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/20' : 'bg-white/5 text-slate-800' }}">
-                        CRIAR E ABRIR SALA AGORA
+                        {{ $this->canCreate ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-2xl shadow-blue-600/20' : 'bg-white/5 text-slate-800 cursor-not-allowed' }}">
+
+                        <span wire:loading.remove wire:target="create">
+                            {{ $this->canCreate ? 'CRIAR E ABRIR SALA AGORA' : 'LIMITE ATINGIDO' }}
+                        </span>
+
+                        <span wire:loading wire:target="create">
+                            PROCESSANDO...
+                        </span>
+
                     </button>
                     <a href="{{ route('games.index') }}"
-                        class="flex-1 py-8 border border-white/10 rounded-[2.5rem] font-black uppercase text-[10px] text-slate-600 flex items-center justify-center hover:text-white transition-all">CANCELAR</a>
+                        class="flex-1 py-8 border border-white/10 rounded-[2.5rem] font-black uppercase text-[10px] text-slate-600 flex items-center justify-center hover:text-white transition-all">
+                        CANCELAR
+                    </a>
                 </div>
             @endif
         </form>
