@@ -45,6 +45,10 @@ Route::middleware('track')->group(function () {
                 Route::livewire('/coupon/analytics', 'pages::admin.marketing.coupon-analytics')->name('coupon.analytics');
             });
 
+             Route::prefix('game')->name('game.')->group(function () {
+                Route::livewire('/sounds', 'pages::admin.game.sounds')->name('sounds');
+            });
+
             Route::prefix('finance')->name('finance.')->group(function () {
                 Route::livewire('/', 'pages::admin.finance.index')->name('home');
                 Route::livewire('/packs', 'pages::admin.finance.packs')->name('packs');

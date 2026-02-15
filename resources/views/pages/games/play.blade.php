@@ -11,8 +11,15 @@ use App\Events\GameUpdated;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Models\GameAudio;
 
 new class extends Component {
+    public string $selectedAudioType = 'system'; // system or player
+    public string $selectedNumberSound = 'numero_sorteado'; // default sound name
+    public string $selectedWinnerSound = 'vencedor';
+    public bool $audioEnabled = true;
+    public bool $ttsEnabled = true; // For browser voices
+
     public Game $game;
     public bool $isCreator = false;
     public Collection $winningCards;
@@ -141,6 +148,8 @@ new class extends Component {
 
             // Pequeno delay para garantir que a trava seja respeitada
             usleep(500000); // 0.5 segundo
+
+            $this->dispatch('play-sound', type: 'number', name: $this->selectedNumberSound);
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao sortear número: ' . $e->getMessage());
         } finally {
@@ -253,6 +262,7 @@ new class extends Component {
             });
 
             $this->finishAction($prize ? 'Prêmio concedido!' : 'Bingo de Honra registrado!');
+            $this->dispatch('play-sound', type: 'winner', name: $this->selectedWinnerSound);
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao conceder prêmio: ' . $e->getMessage());
         } finally {
@@ -337,6 +347,7 @@ new class extends Component {
             }
 
             $this->finishAction("Rodada {$proxRodada} iniciada!");
+            $this->dispatch('play-sound', type: 'system', name: 'proxima_rodada'); // Adicionado
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao iniciar rodada: ' . $e->getMessage());
         } finally {
@@ -381,6 +392,7 @@ new class extends Component {
             }
 
             $this->finishAction('Partida iniciada!');
+            $this->dispatch('play-sound', type: 'system', name: 'inicio_partida'); // Adicionado
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao iniciar partida: ' . $e->getMessage());
         } finally {
@@ -420,6 +432,7 @@ new class extends Component {
             }
 
             $this->finishAction('Partida finalizada!');
+            $this->dispatch('play-sound', type: 'system', name: 'fim_partida'); // Adicionado
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao finalizar partida: ' . $e->getMessage());
         } finally {
@@ -484,6 +497,50 @@ new class extends Component {
     public function isGameMaster(): bool
     {
         return $this->isCreator;
+    }
+
+    // Add computed
+    #[Computed]
+    public function availableSounds()
+    {
+        return GameAudio::active()->default()->byType($this->selectedAudioType)->orderBy('order')->get();
+    }
+
+    #[Computed]
+    public function numberSounds()
+    {
+        return $this->availableSounds->where('name', 'like', '%numero%');
+    }
+
+    #[Computed]
+    public function winnerSounds()
+    {
+        return $this->availableSounds->where('name', 'like', '%vencedor%');
+    }
+
+    // Add methods
+    public function toggleAudio(): void
+    {
+        $this->audioEnabled = !$this->audioEnabled;
+        $this->dispatch('audio-toggle', enabled: $this->audioEnabled);
+    }
+
+    public function changeNumberSound($soundName): void
+    {
+        $this->selectedNumberSound = $soundName;
+        $this->dispatch('change-sound', sound: 'number', name: $soundName);
+    }
+
+    public function changeWinnerSound($soundName): void
+    {
+        $this->selectedWinnerSound = $soundName;
+        $this->dispatch('change-sound', sound: 'winner', name: $soundName);
+    }
+
+    public function toggleTTS(): void
+    {
+        $this->ttsEnabled = !$this->ttsEnabled;
+        $this->dispatch('tts-toggle', enabled: $this->ttsEnabled);
     }
 };
 ?>
@@ -630,6 +687,52 @@ new class extends Component {
                                 <span wire:loading wire:target="finishGame">Encerrando...</span>
                             </button>
                         @endif
+
+                        <!-- Audio Controls -->
+                        <div class="bg-[#161920] p-4 rounded-xl border border-white/10">
+                            <h4 class="text-sm font-bold text-white mb-3 uppercase tracking-wider">Controles de Áudio
+                            </h4>
+                            <div class="space-y-3">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-400">Som Ativado</span>
+                                    <button wire:click="toggleAudio"
+                                        class="w-10 h-5 rounded-full relative {{ $audioEnabled ? 'bg-blue-600' : 'bg-slate-600' }}">
+                                        <div
+                                            class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition {{ $audioEnabled ? 'translate-x-5' : '' }}">
+                                        </div>
+                                    </button>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-semibold text-slate-400">Voz Sintetizada (TTS)</span>
+                                    <button wire:click="toggleTTS"
+                                        class="w-10 h-5 rounded-full relative {{ $ttsEnabled ? 'bg-purple-600' : 'bg-slate-600' }}">
+                                        <div
+                                            class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition {{ $ttsEnabled ? 'translate-x-5' : '' }}">
+                                        </div>
+                                    </button>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-400 mb-1">Som para
+                                        Número</label>
+                                    <select wire:model.live="selectedNumberSound"
+                                        class="w-full bg-[#0b0d11] border border-white/10 rounded text-xs p-2 text-white">
+                                        @foreach ($this->numberSounds as $sound)
+                                            <option value="{{ $sound->name }}">{{ ucfirst($sound->name) }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-semibold text-slate-400 mb-1">Som para
+                                        Vencedor</label>
+                                    <select wire:model.live="selectedWinnerSound"
+                                        class="w-full bg-[#0b0d11] border border-white/10 rounded text-xs p-2 text-white">
+                                        @foreach ($this->winnerSounds as $sound)
+                                            <option value="{{ $sound->name }}">{{ ucfirst($sound->name) }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 @endif
             </div>
@@ -683,7 +786,8 @@ new class extends Component {
                                 <div class="bg-blue-500 h-full transition-all duration-500"
                                     style="width: {{ ($drawnCount / 75) * 100 }}%"></div>
                             </div>
-                            <span class="text-xs font-bold text-blue-400">{{ round(($drawnCount / 75) * 100) }}%</span>
+                            <span
+                                class="text-xs font-bold text-blue-400">{{ round(($drawnCount / 75) * 100) }}%</span>
                         </div>
                     </div>
 
@@ -692,7 +796,8 @@ new class extends Component {
                             wire:loading.class="opacity-50 cursor-not-allowed"
                             class="relative w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-lg font-bold text-sm mb-6 transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                             @if ($drawnCount >= 75 || $isDrawing) disabled @endif>
-                            <div wire:loading wire:target="drawNumber" class="absolute left-6 top-1/2 -translate-y-1/2">
+                            <div wire:loading wire:target="drawNumber"
+                                class="absolute left-6 top-1/2 -translate-y-1/2">
                                 <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg"
                                     fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10"

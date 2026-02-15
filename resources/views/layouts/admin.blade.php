@@ -77,6 +77,17 @@
                         Financeiro
                     </h3>
 
+                    <x-admin.sidebar.group label="Game" icon="credit-card" :active="request()->routeIs('admin.finance.*')">
+                        <x-admin.sidebar.item route="admin.game.sounds" label="Áudios de Jogo" />
+                    </x-admin.sidebar.group>
+                </div>
+
+                {{-- Financeiro --}}
+                <div>
+                    <h3 class="px-2 text-[9px] font-black text-slate-600 uppercase tracking-[0.2em] mb-4 italic">
+                        Financeiro
+                    </h3>
+
                     <x-admin.sidebar.group label="Financeiro" icon="credit-card" :active="request()->routeIs('admin.finance.*')">
                         <x-admin.sidebar.item route="admin.finance.home" label="Estatísticas" />
                         <x-admin.sidebar.item route="admin.finance.packs" label="Pacotes Crédito" />

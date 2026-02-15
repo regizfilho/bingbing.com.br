@@ -1,10 +1,13 @@
 import "./bootstrap";
 import "./echo";
 import './push-notifications';
+import "./audio-manager.js";
 import { requestNotificationPermission } from './notification-permission';
 
 import Alpine from "alpinejs";
 import { shareProfile } from "./share-profile.js";
+
+
 
 
 window.requestNotificationPermission = requestNotificationPermission;
