@@ -29,6 +29,7 @@ class GamePackageSeeder extends Seeder
                 '1 cartela por jogador',
                 'Sorteio manual',
                 'Display público básico',
+                '🔇 Sem controle de áudio',
             ],
             'daily_limit' => 2,
             'monthly_limit' => 15,
@@ -51,6 +52,8 @@ class GamePackageSeeder extends Seeder
                 '3 cartelas por jogador',
                 'Sorteio automático',
                 'Auto claim',
+                '🔊 Controle de áudio completo',
+                '🎤 Vozes e efeitos sonoros',
             ],
             'daily_limit' => 10,
             'monthly_limit' => 100,
@@ -73,6 +76,8 @@ class GamePackageSeeder extends Seeder
                 '6 cartelas por jogador',
                 'Sorteio automático avançado',
                 'Auto claim',
+                '🔊 Controle de áudio completo',
+                '🎤 Vozes e efeitos sonoros',
                 'Sem branding',
             ],
             'daily_limit' => 30,
@@ -85,7 +90,7 @@ class GamePackageSeeder extends Seeder
             'slug' => 'vip',
             'cost_credits' => 50,
             'is_free' => false,
-            'max_players' => 9999, // Valor alto para indicar ilimitado
+            'max_players' => 9999,
             'max_rounds' => 10,
             'max_cards_per_player' => 10,
             'cards_per_player' => 3,
@@ -94,12 +99,14 @@ class GamePackageSeeder extends Seeder
                 'Jogadores ilimitados',
                 '10 rodadas',
                 '10 cartelas por jogador',
+                '🔊 Controle de áudio completo',
+                '🎤 Vozes e efeitos sonoros',
                 'Branding personalizado',
                 'Suporte prioritário',
                 'Analytics avançado',
             ],
-            'daily_limit' => 9999, // Valor alto para indicar ilimitado
-            'monthly_limit' => 9999, // Valor alto para indicar ilimitado
+            'daily_limit' => 9999,
+            'monthly_limit' => 9999,
             'is_active' => true,
         ]);
     }

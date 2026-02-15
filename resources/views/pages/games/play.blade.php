@@ -4,6 +4,7 @@ use Livewire\Attributes\On;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use App\Models\Game\Game;
+use App\Models\Game\GameAudioSetting;
 use App\Models\Game\Winner;
 use App\Models\Game\Card;
 use App\Models\Game\Prize;
@@ -14,12 +15,6 @@ use Illuminate\Support\Str;
 use App\Models\GameAudio;
 
 new class extends Component {
-    public string $selectedAudioType = 'tts';
-    public string $selectedNumberSound = 'Número Sorteado (Voz Feminina BR)';
-    public string $selectedWinnerSound = 'Vencedor (Voz Feminina BR)';
-    public bool $audioEnabled = true;
-    public bool $ttsEnabled = true;
-
     public Game $game;
     public bool $isCreator = false;
     public Collection $winningCards;
@@ -31,6 +26,12 @@ new class extends Component {
     public $willRefund = false;
     public int $tempSeconds = 3;
 
+    // ── CONTROLES DE ÁUDIO ──────────────────────────────────────
+    public bool $audioEnabled = true;
+    public ?int $selected_number_sound_id = null;
+    public ?int $selected_winner_sound_id = null;
+    public bool $showAudioSettings = false;
+
     // Travas de segurança
     public bool $isDrawing = false;
     public bool $isProcessingAction = false;
@@ -40,7 +41,13 @@ new class extends Component {
         $user = auth()->user();
 
         $this->game = Game::where('uuid', $uuid)
-            ->with(['creator:id,name,wallet_id', 'package:id,name,max_players,is_free,cost_credits', 'prizes:id,game_id,name,description,position,is_claimed,uuid', 'players.user:id,name'])
+            ->with([
+                'creator:id,name,wallet_id', 
+                'package:id,name,max_players,is_free,cost_credits', 
+                'prizes:id,game_id,name,description,position,is_claimed,uuid', 
+                'players.user:id,name',
+                'audioSettings.audio'
+            ])
             ->firstOrFail();
 
         $this->isCreator = $this->game->creator_id === $user->id;
@@ -52,7 +59,155 @@ new class extends Component {
         $this->winningCards = collect();
         $this->tempSeconds = $this->game->auto_draw_seconds ?? 3;
 
+        // ── CARREGA CONFIGURAÇÕES DE ÁUDIO SALVAS ──────────────
+        $this->loadAudioSettings();
         $this->loadGameData();
+    }
+
+    private function loadAudioSettings(): void
+    {
+        // Busca configurações salvas no banco
+        $numberSetting = $this->game->audioSettings()
+            ->where('audio_category', 'number')
+            ->where('is_enabled', true)
+            ->first();
+
+        $winnerSetting = $this->game->audioSettings()
+            ->where('audio_category', 'winner')
+            ->where('is_enabled', true)
+            ->first();
+
+        if ($numberSetting) {
+            $this->selected_number_sound_id = $numberSetting->game_audio_id;
+            $this->audioEnabled = true;
+        } else {
+            // Fallback para default do banco
+            $defaultNumber = GameAudio::active()
+                ->where('type', 'player')
+                ->where('is_default', true)
+                ->where(function ($q) {
+                    $q->where('name', 'like', '%Número%')
+                      ->orWhere('name', 'like', '%numero%');
+                })
+                ->first();
+            
+            $this->selected_number_sound_id = $defaultNumber?->id;
+        }
+
+        if ($winnerSetting) {
+            $this->selected_winner_sound_id = $winnerSetting->game_audio_id;
+        } else {
+            $defaultWinner = GameAudio::active()
+                ->where('type', 'player')
+                ->where('is_default', true)
+                ->where(function ($q) {
+                    $q->where('name', 'like', '%Vencedor%')
+                      ->orWhere('name', 'like', '%vencedor%');
+                })
+                ->first();
+
+            $this->selected_winner_sound_id = $defaultWinner?->id;
+        }
+
+        \Log::info('🔊 Áudio carregado no controle', [
+            'game_id' => $this->game->id,
+            'number_sound_id' => $this->selected_number_sound_id,
+            'winner_sound_id' => $this->selected_winner_sound_id,
+            'audio_enabled' => $this->audioEnabled,
+        ]);
+    }
+
+    #[Computed]
+    public function canUseCustomAudio(): bool
+    {
+        return !$this->game->package->is_free;
+    }
+
+    #[Computed]
+    public function selectedNumberSound()
+    {
+        if (!$this->selected_number_sound_id) return null;
+        return GameAudio::find($this->selected_number_sound_id);
+    }
+
+    #[Computed]
+    public function selectedWinnerSound()
+    {
+        if (!$this->selected_winner_sound_id) return null;
+        return GameAudio::find($this->selected_winner_sound_id);
+    }
+
+    public function updatedSelectedNumberSoundId(): void
+    {
+        if (!$this->canUseCustomAudio) return;
+
+        if ($this->selected_number_sound_id) {
+            $this->game->setAudioForCategory('number', $this->selected_number_sound_id, true);
+            $this->dispatch('notify', type: 'success', text: 'Som de número atualizado!');
+            
+            \Log::info('✅ Som de número atualizado', [
+                'game_id' => $this->game->id,
+                'audio_id' => $this->selected_number_sound_id,
+            ]);
+
+            // Notifica display público para recarregar configurações
+            broadcast(new GameUpdated($this->game))->toOthers();
+        }
+    }
+
+    public function updatedSelectedWinnerSoundId(): void
+    {
+        if (!$this->canUseCustomAudio) return;
+
+        if ($this->selected_winner_sound_id) {
+            $this->game->setAudioForCategory('winner', $this->selected_winner_sound_id, true);
+            $this->dispatch('notify', type: 'success', text: 'Som de vencedor atualizado!');
+            
+            \Log::info('✅ Som de vencedor atualizado', [
+                'game_id' => $this->game->id,
+                'audio_id' => $this->selected_winner_sound_id,
+            ]);
+
+            broadcast(new GameUpdated($this->game))->toOthers();
+        }
+    }
+
+    public function toggleAudioEnabled(): void
+    {
+        if (!$this->canUseCustomAudio) {
+            $this->dispatch('notify', type: 'warning', text: 'Controle de áudio exclusivo para planos pagos.');
+            return;
+        }
+
+        $this->audioEnabled = !$this->audioEnabled;
+
+        // Atualiza todas as configurações de áudio
+        $this->game->audioSettings()->update(['is_enabled' => $this->audioEnabled]);
+
+        $msg = $this->audioEnabled ? 'Áudio ativado!' : 'Áudio desativado!';
+        $this->dispatch('notify', type: 'info', text: $msg);
+
+        broadcast(new GameUpdated($this->game))->toOthers();
+    }
+
+    public function testNumberSound(): void
+    {
+        if (!$this->canUseCustomAudio) return;
+        
+        $audio = $this->selectedNumberSound;
+        if ($audio) {
+            $this->dispatch('play-sound', type: 'number', audioId: $audio->id);
+        }
+    }
+
+    public function testWinnerSound(): void
+    {
+        if (!$this->canUseCustomAudio) return;
+        
+        $audio = $this->selectedWinnerSound;
+        if ($audio) {
+            $this->dispatch('play-sound', type: 'winner', audioId: $audio->id);
+        }
     }
 
     #[On('echo:game.{game.uuid},.GameUpdated')]
@@ -60,24 +215,20 @@ new class extends Component {
     {
         $this->game->unsetRelations();
         $this->game = Game::where('uuid', $this->game->uuid)
-            ->with(['creator:id,name,wallet_id', 'package:id,name,max_players,is_free,cost_credits', 'prizes:id,game_id,name,description,position,is_claimed,uuid', 'players.user:id,name', 'players.cards', 'draws', 'winners.user', 'winners.prize'])
+            ->with([
+                'creator:id,name,wallet_id', 
+                'package:id,name,max_players,is_free,cost_credits', 
+                'prizes:id,game_id,name,description,position,is_claimed,uuid', 
+                'players.user:id,name', 
+                'players.cards', 
+                'draws', 
+                'winners.user', 
+                'winners.prize',
+                'audioSettings.audio'
+            ])
             ->firstOrFail();
 
         $this->loadGameData();
-    }
-
-    public function updatedSelectedAudioType(): void
-    {
-        $firstNumber = $this->numberSounds->where('audio_type', $this->selectedAudioType)->first();
-        $firstWinner = $this->winnerSounds->where('audio_type', $this->selectedAudioType)->first();
-
-        if ($firstNumber) {
-            $this->selectedNumberSound = $firstNumber->name;
-        }
-
-        if ($firstWinner) {
-            $this->selectedWinnerSound = $firstWinner->name;
-        }
     }
 
     #[On('game-updated')]
@@ -89,7 +240,15 @@ new class extends Component {
     public function hydrate(): void
     {
         $this->game->unsetRelations();
-        $this->game->load(['prizes', 'package', 'players.cards', 'players.user:id,name', 'winners.user', 'draws' => fn($q) => $q->where('round_number', $this->game->current_round)]);
+        $this->game->load([
+            'prizes', 
+            'package', 
+            'players.cards', 
+            'players.user:id,name', 
+            'winners.user', 
+            'draws' => fn($q) => $q->where('round_number', $this->game->current_round),
+            'audioSettings.audio'
+        ]);
         $this->loadGameData();
     }
 
@@ -152,14 +311,10 @@ new class extends Component {
 
             $this->finishAction("Número {$draw->number} sorteado!");
 
-            \Log::info('Disparando evento de som de número (controle)', [
-                'name' => $this->selectedNumberSound,
-                'audioEnabled' => $this->audioEnabled,
-            ]);
-
             usleep(500000);
 
-            $this->dispatch('play-sound', type: 'number', name: $this->selectedNumberSound);
+            // Dispara som no display público (não aqui)
+            // O evento GameUpdated já notifica o display
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao sortear número: ' . $e->getMessage());
         } finally {
@@ -271,8 +426,6 @@ new class extends Component {
             });
 
             $this->finishAction($prize ? 'Prêmio concedido!' : 'Bingo de Honra registrado!');
-
-            $this->dispatch('play-sound', type: 'winner', name: $this->selectedWinnerSound);
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao conceder prêmio: ' . $e->getMessage());
         } finally {
@@ -354,8 +507,6 @@ new class extends Component {
             }
 
             $this->finishAction("Rodada {$proxRodada} iniciada!");
-
-            $this->dispatch('play-sound', type: 'system', name: 'proxima_rodada');
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao iniciar rodada: ' . $e->getMessage());
         } finally {
@@ -397,8 +548,6 @@ new class extends Component {
             }
 
             $this->finishAction('Partida iniciada!');
-
-            $this->dispatch('play-sound', type: 'system', name: 'inicio_partida');
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao iniciar partida: ' . $e->getMessage());
         } finally {
@@ -435,8 +584,6 @@ new class extends Component {
             }
 
             $this->finishAction('Partida finalizada!');
-
-            $this->dispatch('play-sound', type: 'system', name: 'fim_partida');
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao finalizar partida: ' . $e->getMessage());
         } finally {
@@ -497,7 +644,7 @@ new class extends Component {
     public function numberSounds()
     {
         return GameAudio::active()
-            ->byType('player')
+            ->where('type', 'player')
             ->where(function($q) {
                 $q->where('name', 'like', '%Número%')
                   ->orWhere('name', 'like', '%numero%')
@@ -511,7 +658,7 @@ new class extends Component {
     public function winnerSounds()
     {
         return GameAudio::active()
-            ->byType('player')
+            ->where('type', 'player')
             ->where(function($q) {
                 $q->where('name', 'like', '%Vencedor%')
                   ->orWhere('name', 'like', '%vencedor%')
@@ -520,36 +667,6 @@ new class extends Component {
             ->orderBy('order')
             ->get();
     }
-
-    public function toggleAudio(): void
-    {
-        $this->audioEnabled = !$this->audioEnabled;
-        $this->dispatch('audio-toggle', enabled: $this->audioEnabled);
-    }
-
-    public function changeNumberSound($soundName): void
-    {
-        $this->selectedNumberSound = $soundName;
-        $this->dispatch('change-sound', sound: 'number', name: $soundName);
-
-        session()->put('game_audio_number', $soundName);
-        session()->save();
-    }
-
-    public function changeWinnerSound($soundName): void
-    {
-        $this->selectedWinnerSound = $soundName;
-        $this->dispatch('change-sound', sound: 'winner', name: $soundName);
-
-        session()->put('game_audio_winner', $soundName);
-        session()->save();
-    }
-
-    public function toggleTTS(): void
-    {
-        $this->ttsEnabled = !$this->ttsEnabled;
-        $this->dispatch('tts-toggle', enabled: $this->ttsEnabled);
-    }
 };
 ?>
 
@@ -557,7 +674,7 @@ new class extends Component {
 <script>
     window.isControlPanel = true;
     window.isPublicDisplay = false;
-    console.log('Tela de controle → áudio BLOQUEADO localmente');
+    console.log('=== TELA DE CONTROLE: Áudio bloqueado localmente ===');
 </script>
 
 <div class="min-h-screen bg-[#05070a] text-slate-200">
@@ -703,104 +820,124 @@ new class extends Component {
                             </button>
                         @endif
 
-                        <!-- Audio Controls -->
-                        <div class="bg-[#161920] p-4 rounded-xl border border-white/10">
-                            <h4 class="text-sm font-bold text-white mb-3 uppercase tracking-wider">Áudio do Display</h4>
-                            <div class="space-y-3">
-                                <!-- Toggle Principal -->
-                                <div class="flex items-center justify-between p-3 bg-[#0b0d11] rounded-lg border border-white/5">
+                        {{-- ── CONTROLES DE ÁUDIO (APENAS PLANOS PAGOS) ────────── --}}
+                        @if ($this->canUseCustomAudio)
+                            <div class="bg-gradient-to-br from-indigo-600/10 to-purple-600/10 border-2 border-indigo-500/30 rounded-xl p-5">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h4 class="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                                        <span>🔊</span> Áudio do Display
+                                    </h4>
+                                    <button wire:click="$toggle('showAudioSettings')"
+                                        class="text-indigo-400 hover:text-indigo-300 transition">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="{{ $showAudioSettings ? 'M5 15l7-7 7 7' : 'M19 9l-7 7-7-7' }}" />
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                {{-- Toggle Principal --}}
+                                <div class="flex items-center justify-between p-3 bg-[#0b0d11] rounded-lg border border-white/5 mb-3">
                                     <span class="text-xs font-semibold text-slate-300">Áudio Ativado</span>
-                                    <button wire:click="toggleAudio"
-                                        class="w-12 h-6 rounded-full relative transition-all {{ $audioEnabled ? 'bg-blue-600' : 'bg-slate-600' }}">
+                                    <button wire:click="toggleAudioEnabled"
+                                        class="w-12 h-6 rounded-full relative transition-all {{ $audioEnabled ? 'bg-indigo-600' : 'bg-slate-600' }}">
                                         <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform {{ $audioEnabled ? 'translate-x-6' : '' }}"></div>
                                     </button>
                                 </div>
 
-                                @if($audioEnabled)
-                                    <!-- Escolher Tipo de Áudio -->
-                                    <div class="p-3 bg-[#0b0d11] rounded-lg border border-white/5">
-                                        <label class="block text-xs font-semibold text-slate-400 mb-2">Tipo de Áudio</label>
-                                        <div class="grid grid-cols-2 gap-2">
-                                            <button wire:click="$set('selectedAudioType', 'mp3')" type="button"
-                                                class="px-3 py-2 rounded-lg text-xs font-bold transition-all {{ $selectedAudioType === 'mp3' ? 'bg-blue-600 text-white' : 'bg-[#161920] text-slate-400 hover:bg-[#1a1f2a]' }}">
-                                                🎵 Áudio MP3
-                                            </button>
-                                            <button wire:click="$set('selectedAudioType', 'tts')" type="button"
-                                                class="px-3 py-2 rounded-lg text-xs font-bold transition-all {{ $selectedAudioType === 'tts' ? 'bg-purple-600 text-white' : 'bg-[#161920] text-slate-400 hover:bg-[#1a1f2a]' }}">
-                                                🎤 Voz (TTS)
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    @if($selectedAudioType === 'mp3')
-                                        <!-- Sons MP3 -->
+                                @if($showAudioSettings && $audioEnabled)
+                                    <div class="space-y-3 animate-fade-in">
+                                        {{-- Som para Número --}}
                                         <div class="p-3 bg-[#0b0d11] rounded-lg border border-white/5">
-                                            <label class="block text-xs font-semibold text-slate-400 mb-2">Som para Número</label>
-                                            <select wire:model.live="selectedNumberSound"
-                                                class="w-full bg-[#161920] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                @foreach ($this->numberSounds->where('audio_type', 'mp3') as $sound)
-                                                    <option value="{{ $sound->name }}">{{ $sound->name }}</option>
+                                            <label class="block text-xs font-semibold text-blue-400 mb-2 flex items-center justify-between">
+                                                <span>🎵 Som para Número</span>
+                                                <button wire:click="testNumberSound" type="button"
+                                                    class="text-[10px] bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded font-bold transition">
+                                                    Testar
+                                                </button>
+                                            </label>
+                                            <select wire:model.live="selected_number_sound_id"
+                                                class="w-full bg-[#161920] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500">
+                                                @foreach ($this->numberSounds as $sound)
+                                                    <option value="{{ $sound->id }}">
+                                                        {{ $sound->name }}
+                                                        ({{ $sound->audio_type === 'mp3' ? '🎵 Efeito' : '🎤 Voz' }})
+                                                    </option>
                                                 @endforeach
                                             </select>
-                                        </div>
-
-                                        <div class="p-3 bg-[#0b0d11] rounded-lg border border-white/5">
-                                            <label class="block text-xs font-semibold text-slate-400 mb-2">Som para Vencedor</label>
-                                            <select wire:model.live="selectedWinnerSound"
-                                                class="w-full bg-[#161920] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                                @foreach ($this->winnerSounds->where('audio_type', 'mp3') as $sound)
-                                                    <option value="{{ $sound->name }}">{{ $sound->name }}</option>
-                                                @endforeach
-                                            </select>
-                                        </div>
-                                    @else
-                                        <!-- Vozes TTS -->
-                                        <div class="p-3 bg-[#0b0d11] rounded-lg border border-white/5">
-                                            <label class="block text-xs font-semibold text-slate-400 mb-2">Voz para Número</label>
-                                            <select wire:model.live="selectedNumberSound"
-                                                class="w-full bg-[#161920] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                                @foreach ($this->numberSounds->where('audio_type', 'tts') as $sound)
-                                                    <option value="{{ $sound->name }}">{{ $sound->name }}</option>
-                                                @endforeach
-                                            </select>
-                                            @php
-                                                $selectedNumber = $this->numberSounds->firstWhere('name', $selectedNumberSound);
-                                            @endphp
-                                            @if($selectedNumber)
-                                                <div class="mt-2 text-xs text-purple-400">
-                                                    📢 {{ $selectedNumber->tts_voice }}
-                                                </div>
+                                            @if($this->selectedNumberSound)
+                                                <p class="mt-2 text-[10px] text-purple-400">
+                                                    @if($this->selectedNumberSound->audio_type === 'tts')
+                                                        📢 {{ $this->selectedNumberSound->tts_voice }}
+                                                    @else
+                                                        🎵 Efeito Sonoro
+                                                    @endif
+                                                </p>
                                             @endif
                                         </div>
 
+                                        {{-- Som para Vencedor --}}
                                         <div class="p-3 bg-[#0b0d11] rounded-lg border border-white/5">
-                                            <label class="block text-xs font-semibold text-slate-400 mb-2">Voz para Vencedor</label>
-                                            <select wire:model.live="selectedWinnerSound"
-                                                class="w-full bg-[#161920] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                                @foreach ($this->winnerSounds->where('audio_type', 'tts') as $sound)
-                                                    <option value="{{ $sound->name }}">{{ $sound->name }}</option>
+                                            <label class="block text-xs font-semibold text-purple-400 mb-2 flex items-center justify-between">
+                                                <span>🏆 Som para Vencedor</span>
+                                                <button wire:click="testWinnerSound" type="button"
+                                                    class="text-[10px] bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded font-bold transition">
+                                                    Testar
+                                                </button>
+                                            </label>
+                                            <select wire:model.live="selected_winner_sound_id"
+                                                class="w-full bg-[#161920] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500">
+                                                @foreach ($this->winnerSounds as $sound)
+                                                    <option value="{{ $sound->id }}">
+                                                        {{ $sound->name }}
+                                                        ({{ $sound->audio_type === 'mp3' ? '🎵 Efeito' : '🎤 Voz' }})
+                                                    </option>
                                                 @endforeach
                                             </select>
-                                            @php
-                                                $selectedWinner = $this->winnerSounds->firstWhere('name', $selectedWinnerSound);
-                                            @endphp
-                                            @if($selectedWinner)
-                                                <div class="mt-2 text-xs text-purple-400">
-                                                    📢 {{ $selectedWinner->tts_voice }}
-                                                </div>
+                                            @if($this->selectedWinnerSound)
+                                                <p class="mt-2 text-[10px] text-purple-400">
+                                                    @if($this->selectedWinnerSound->audio_type === 'tts')
+                                                        📢 {{ $this->selectedWinnerSound->tts_voice }}
+                                                    @else
+                                                        🎵 Efeito Sonoro
+                                                    @endif
+                                                </p>
                                             @endif
                                         </div>
-                                    @endif
 
-                                    <!-- Info -->
-                                    <div class="p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                                        <p class="text-[10px] text-blue-400 text-center font-semibold">
-                                            Sons tocam automaticamente no display público
-                                        </p>
+                                        {{-- Info --}}
+                                        <div class="p-2 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+                                            <p class="text-[10px] text-indigo-300 text-center font-semibold">
+                                                💡 Sons tocam automaticamente no display público
+                                            </p>
+                                        </div>
                                     </div>
                                 @endif
                             </div>
-                        </div>
+                        @else
+                            {{-- Card de Upgrade --}}
+                            <div class="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border-2 border-orange-500/30 rounded-xl p-5 relative overflow-hidden">
+                                <div class="absolute top-0 right-0 w-20 h-20 bg-orange-600/10 rounded-full blur-2xl"></div>
+                                <div class="relative">
+                                    <div class="flex items-center gap-3 mb-3">
+                                        <span class="text-2xl">🔊</span>
+                                        <h4 class="text-sm font-bold text-white uppercase tracking-wider">Controle de Áudio</h4>
+                                    </div>
+                                    <div class="mb-3 px-3 py-2 bg-orange-600/20 border border-orange-500/30 rounded-lg">
+                                        <p class="text-[10px] text-orange-300 font-bold uppercase text-center">
+                                            🔒 Exclusivo Planos Pagos
+                                        </p>
+                                    </div>
+                                    <p class="text-xs text-slate-400 mb-4">
+                                        Personalize sons de sorteio e vitória com vozes profissionais ou efeitos exclusivos.
+                                    </p>
+                                    <a href="{{ route('wallet.index') }}"
+                                        class="block text-center bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition shadow-lg">
+                                        ⭐ Fazer Upgrade
+                                    </a>
+                                </div>
+                            </div>
+                        @endif
                     </div>
                 @endif
             </div>
@@ -1232,3 +1369,13 @@ new class extends Component {
 
     <x-toast />
 </div>
+
+<style>
+    @keyframes fade-in {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+        animation: fade-in 0.3s ease-out;
+    }
+</style>

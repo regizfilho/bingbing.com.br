@@ -5,6 +5,8 @@ use Livewire\Attributes\Validate;
 use Livewire\Component;
 use App\Models\Game\GamePackage;
 use App\Models\Game\Game;
+use App\Models\Game\GameAudioSetting;
+use App\Models\GameAudio;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -39,6 +41,11 @@ new #[Layout('layouts.app')] class extends Component {
     public int $max_rounds = 1;
 
     public array $prizes = [];
+
+    // ── CAMPOS DE ÁUDIO (IDs dos GameAudio) ──────────────────────────
+    public bool $audio_enabled = true;
+    public ?int $selected_number_sound_id = null;
+    public ?int $selected_winner_sound_id = null;
 
     public function rules(): array
     {
@@ -149,6 +156,7 @@ new #[Layout('layouts.app')] class extends Component {
         $allowCustomBranding = in_array($type, ['premium', 'vip']);
         $prioritySupport = $type === 'vip';
         $advancedAnalytics = $type === 'vip';
+        $allowCustomAudio = !$pkg->is_free;
 
         return [
             'max_players' => $pkg->max_players,
@@ -157,11 +165,48 @@ new #[Layout('layouts.app')] class extends Component {
             'allow_auto_draw' => $allowAutoDraw,
             'allow_public_display' => $allowPublicDisplay,
             'allow_prize_auto_claim' => $allowPrizeAutoClaim,
+            'allow_custom_audio' => $allowCustomAudio,
             'show_branding' => $showBranding,
             'allow_custom_branding' => $allowCustomBranding,
             'priority_support' => $prioritySupport,
             'advanced_analytics' => $advancedAnalytics,
         ];
+    }
+
+    // ── COMPUTED PARA ÁUDIOS ────────────────────────────────────────
+    #[Computed]
+    public function numberSounds()
+    {
+        return GameAudio::active()
+            ->where('type', 'player')
+            ->where(function ($q) {
+                $q->where('name', 'like', '%Número%')
+                  ->orWhere('name', 'like', '%numero%')
+                  ->orWhere('name', 'like', '%Number%');
+            })
+            ->orderBy('order')
+            ->get();
+    }
+
+    #[Computed]
+    public function winnerSounds()
+    {
+        return GameAudio::active()
+            ->where('type', 'player')
+            ->where(function ($q) {
+                $q->where('name', 'like', '%Vencedor%')
+                  ->orWhere('name', 'like', '%vencedor%')
+                  ->orWhere('name', 'like', '%Winner%');
+            })
+            ->orderBy('order')
+            ->get();
+    }
+
+    #[Computed]
+    public function canUseCustomAudio(): bool
+    {
+        $restrictions = $this->packageRestrictions;
+        return $restrictions['allow_custom_audio'] ?? false;
     }
 
     #[Computed]
@@ -305,8 +350,34 @@ new #[Layout('layouts.app')] class extends Component {
     public function mount(): void
     {
         if (empty($this->prizes)) {
-            $this->prizes = [['temp_id' => Str::random(8), 'name' => '1º Prêmio', 'description' => ''], ['temp_id' => Str::random(8), 'name' => '2º Prêmio', 'description' => ''], ['temp_id' => Str::random(8), 'name' => '3º Prêmio', 'description' => '']];
+            $this->prizes = [
+                ['temp_id' => Str::random(8), 'name' => '1º Prêmio', 'description' => ''],
+                ['temp_id' => Str::random(8), 'name' => '2º Prêmio', 'description' => ''],
+                ['temp_id' => Str::random(8), 'name' => '3º Prêmio', 'description' => '']
+            ];
         }
+
+        // Carrega defaults de áudio do banco
+        $defaultNumber = GameAudio::active()
+            ->where('type', 'player')
+            ->where('is_default', true)
+            ->where(function ($q) {
+                $q->where('name', 'like', '%Número%')
+                  ->orWhere('name', 'like', '%numero%');
+            })
+            ->first();
+
+        $defaultWinner = GameAudio::active()
+            ->where('type', 'player')
+            ->where('is_default', true)
+            ->where(function ($q) {
+                $q->where('name', 'like', '%Vencedor%')
+                  ->orWhere('name', 'like', '%vencedor%');
+            })
+            ->first();
+
+        $this->selected_number_sound_id = $defaultNumber?->id;
+        $this->selected_winner_sound_id = $defaultWinner?->id;
     }
 
     public function setCardSize($size): void
@@ -331,6 +402,11 @@ new #[Layout('layouts.app')] class extends Component {
             // Desabilita auto-claim se não permitido
             if (!$restrictions['allow_prize_auto_claim']) {
                 $this->auto_claim_prizes = false;
+            }
+
+            // Desabilita áudio customizado se não permitido
+            if (!$restrictions['allow_custom_audio']) {
+                $this->audio_enabled = false;
             }
 
             $allowed = !empty($package->allowed_card_sizes) ? array_map('intval', (array) $package->allowed_card_sizes) : [9, 15, 24];
@@ -422,6 +498,7 @@ new #[Layout('layouts.app')] class extends Component {
                     throw new \Exception('É necessário ao menos um prêmio válido.');
                 }
 
+                // ── CRIA O GAME ─────────────────────────────────────
                 $game = Game::create([
                     'creator_id' => $user->id,
                     'game_package_id' => $package->id,
@@ -441,6 +518,34 @@ new #[Layout('layouts.app')] class extends Component {
                     'invite_code' => strtoupper(Str::random(10)),
                 ]);
 
+                // ── SALVA CONFIGURAÇÕES DE ÁUDIO (PROFISSIONAL) ────
+                if ($restrictions['allow_custom_audio'] && $this->audio_enabled) {
+                    if ($this->selected_number_sound_id) {
+                        GameAudioSetting::create([
+                            'game_id' => $game->id,
+                            'audio_category' => 'number',
+                            'game_audio_id' => $this->selected_number_sound_id,
+                            'is_enabled' => true,
+                        ]);
+                    }
+
+                    if ($this->selected_winner_sound_id) {
+                        GameAudioSetting::create([
+                            'game_id' => $game->id,
+                            'audio_category' => 'winner',
+                            'game_audio_id' => $this->selected_winner_sound_id,
+                            'is_enabled' => true,
+                        ]);
+                    }
+
+                    \Log::info('✅ Áudio configurado na criação', [
+                        'game_id' => $game->id,
+                        'number_sound_id' => $this->selected_number_sound_id,
+                        'winner_sound_id' => $this->selected_winner_sound_id,
+                    ]);
+                }
+
+                // ── CRIA PRÊMIOS ────────────────────────────────────
                 foreach ($validPrizes as $index => $prize) {
                     $game->prizes()->create([
                         'uuid' => (string) Str::uuid(),
@@ -450,11 +555,12 @@ new #[Layout('layouts.app')] class extends Component {
                     ]);
                 }
 
+                // ── DEBITA CRÉDITOS ─────────────────────────────────
                 if (!$package->is_free) {
                     $user->wallet->debit($package->cost_credits, "Arena: {$this->name}", $game);
                 }
 
-                // Invalida caches
+                // ── INVALIDA CACHES ─────────────────────────────────
                 Cache::forget('user_game_stats_' . $user->id);
                 Cache::forget("user_game_usage_{$user->id}_{$package->id}_today");
                 Cache::forget("user_game_usage_{$user->id}_{$package->id}_month");
@@ -790,6 +896,117 @@ new #[Layout('layouts.app')] class extends Component {
                         </div>
                     </div>
 
+                    {{-- ── SEÇÃO DE ÁUDIO (APENAS PLANOS PAGOS) ────────────── --}}
+                    @if ($this->canUseCustomAudio)
+                        <div class="lg:col-span-3 bg-gradient-to-br from-indigo-600/10 to-purple-600/10 border-2 border-indigo-500/30 rounded-[3rem] p-10">
+                            <div class="flex items-center gap-4 border-b border-white/10 pb-6 mb-8">
+                                <span class="text-2xl">🔊</span>
+                                <h3 class="font-black text-white uppercase italic tracking-widest text-sm">Controle de Áudio</h3>
+                                <div class="ml-auto px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full text-[8px] font-black uppercase text-white shadow-lg">
+                                    ⭐ Exclusivo Plano Pago
+                                </div>
+                            </div>
+
+                            {{-- Toggle Áudio Geral --}}
+                            <div class="mb-8 flex items-center justify-between p-6 bg-[#0b0d11] border border-white/5 rounded-2xl">
+                                <div>
+                                    <p class="text-sm font-black text-white uppercase tracking-wider mb-1">Áudio Ativado</p>
+                                    <p class="text-[9px] text-slate-400 font-bold">Sons durante o jogo (sorteio e vencedores)</p>
+                                </div>
+                                <button type="button" wire:click="$toggle('audio_enabled')"
+                                    class="w-16 h-8 rounded-full relative transition-all {{ $audio_enabled ? 'bg-indigo-600' : 'bg-slate-600' }}">
+                                    <div class="absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform {{ $audio_enabled ? 'translate-x-8' : '' }}">
+                                    </div>
+                                </button>
+                            </div>
+
+                            @if ($audio_enabled)
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
+                                    {{-- Som para Número --}}
+                                    <div class="bg-[#0b0d11] border border-white/5 rounded-2xl p-6">
+                                        <label class="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-4 block">
+                                            🎵 Som para Número Sorteado
+                                        </label>
+                                        <select wire:model.live="selected_number_sound_id"
+                                            class="w-full bg-[#05070a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-blue-500 mb-3">
+                                            @foreach ($this->numberSounds as $sound)
+                                                <option value="{{ $sound->id }}">
+                                                    {{ $sound->name }}
+                                                    ({{ $sound->audio_type === 'mp3' ? '🎵 Efeito' : '🎤 Voz' }})
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        <p class="text-[8px] text-slate-500 font-bold uppercase">
+                                            Será tocado automaticamente a cada sorteio
+                                        </p>
+                                    </div>
+
+                                    {{-- Som para Vencedor --}}
+                                    <div class="bg-[#0b0d11] border border-white/5 rounded-2xl p-6">
+                                        <label class="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-4 block">
+                                            🏆 Som para Vencedor
+                                        </label>
+                                        <select wire:model.live="selected_winner_sound_id"
+                                            class="w-full bg-[#05070a] border border-white/10 rounded-xl px-4 py-3 text-sm text-white font-bold focus:outline-none focus:border-purple-500 mb-3">
+                                            @foreach ($this->winnerSounds as $sound)
+                                                <option value="{{ $sound->id }}">
+                                                    {{ $sound->name }}
+                                                    ({{ $sound->audio_type === 'mp3' ? '🎵 Efeito' : '🎤 Voz' }})
+                                                </option>
+                                            @endforeach
+                                        </select>
+                                        <p class="text-[8px] text-slate-500 font-bold uppercase">
+                                            Será tocado quando alguém bater
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div class="mt-6 p-4 bg-white/5 border border-white/10 rounded-xl">
+                                    <p class="text-[9px] text-slate-400 font-bold text-center">
+                                        💡 <span class="text-white">Dica:</span> Você poderá alterar esses sons a qualquer momento durante a partida no painel de controle.
+                                    </p>
+                                </div>
+                            @endif
+                        </div>
+                    @else
+                        {{-- Card de Upgrade para Áudio --}}
+                        <div class="lg:col-span-3 bg-gradient-to-br from-slate-800/50 to-slate-900/50 border-2 border-white/5 rounded-[3rem] p-10 relative overflow-hidden">
+                            <div class="absolute top-0 right-0 w-32 h-32 bg-indigo-600/10 rounded-full blur-3xl"></div>
+                            <div class="relative">
+                                <div class="flex items-center gap-4 mb-6">
+                                    <span class="text-3xl">🔊</span>
+                                    <h3 class="font-black text-white uppercase italic tracking-widest text-sm">Controle de Áudio</h3>
+                                    <div class="ml-auto px-4 py-2 bg-gradient-to-r from-orange-600 to-red-600 rounded-full text-[8px] font-black uppercase text-white shadow-lg animate-pulse">
+                                        🔒 Bloqueado
+                                    </div>
+                                </div>
+                                <p class="text-slate-400 font-bold text-sm mb-6">
+                                    Personalize os sons de sorteio e vitória! Escolha entre vozes profissionais em português ou efeitos sonoros exclusivos.
+                                </p>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 opacity-40">
+                                    <div class="bg-[#0b0d11] border border-white/5 rounded-xl p-4 text-center">
+                                        <span class="text-2xl mb-2 block">🎤</span>
+                                        <p class="text-[9px] font-black text-slate-500 uppercase">Vozes em PT-BR</p>
+                                    </div>
+                                    <div class="bg-[#0b0d11] border border-white/5 rounded-xl p-4 text-center">
+                                        <span class="text-2xl mb-2 block">🎵</span>
+                                        <p class="text-[9px] font-black text-slate-500 uppercase">Efeitos Sonoros</p>
+                                    </div>
+                                    <div class="bg-[#0b0d11] border border-white/5 rounded-xl p-4 text-center">
+                                        <span class="text-2xl mb-2 block">⚙️</span>
+                                        <p class="text-[9px] font-black text-slate-500 uppercase">Controle Total</p>
+                                    </div>
+                                </div>
+                                <div class="flex gap-4">
+                                    <a href="{{ route('wallet.index') }}"
+                                        class="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-wider transition text-center shadow-lg shadow-indigo-600/20">
+                                        ⭐ Fazer Upgrade Agora
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    @endif
+
                     {{-- PRÊMIOS --}}
                     <div class="lg:col-span-3 bg-[#0b0d11] border border-white/5 rounded-[3.5rem] p-12">
                         <div class="flex justify-between items-center mb-10">
@@ -847,3 +1064,13 @@ new #[Layout('layouts.app')] class extends Component {
     </div>
     <x-toast />
 </div>
+
+<style>
+    @keyframes fade-in {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+        animation: fade-in 0.3s ease-out;
+    }
+</style>

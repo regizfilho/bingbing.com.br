@@ -2,6 +2,7 @@
 
 namespace App\Models\Game;
 
+use App\Models\GameAudio;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
@@ -329,4 +330,39 @@ protected $casts = [
     {
         return 'uuid';
     }
+
+    
+    public function audioSettings()
+    {
+        return $this->hasMany(GameAudioSetting::class);
+    }
+
+    // Helper methods para facilitar o uso
+    public function getAudioForCategory(string $category): ?GameAudio
+    {
+        $setting = $this->audioSettings()
+            ->where('audio_category', $category)
+            ->where('is_enabled', true)
+            ->with('audio')
+            ->first();
+
+        return $setting?->audio;
+    }
+
+    public function setAudioForCategory(string $category, int $audioId, bool $enabled = true): void
+    {
+        $this->audioSettings()->updateOrCreate(
+            ['audio_category' => $category],
+            [
+                'game_audio_id' => $audioId,
+                'is_enabled' => $enabled,
+            ]
+        );
+    }
+
+    public function hasCustomAudio(): bool
+    {
+        return $this->audioSettings()->where('is_enabled', true)->exists();
+    }
+
 }
