@@ -48,6 +48,7 @@ Route::middleware('track')->group(function () {
             Route::prefix('finance')->name('finance.')->group(function () {
                 Route::livewire('/', 'pages::admin.finance.index')->name('home');
                 Route::livewire('/packs', 'pages::admin.finance.packs')->name('packs');
+                Route::livewire('/game-packs', 'pages::admin.finance.game-package')->name('game-package');
                 Route::livewire('/refound', 'pages::admin.finance.refound')->name('refound');
                 Route::livewire('/credit', 'pages::admin.finance.credit')->name('credit');
                 Route::livewire('/gift', 'pages::admin.finance.gift')->name('gift');

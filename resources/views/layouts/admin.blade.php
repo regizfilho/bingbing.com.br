@@ -79,7 +79,8 @@
 
                     <x-admin.sidebar.group label="Financeiro" icon="credit-card" :active="request()->routeIs('admin.finance.*')">
                         <x-admin.sidebar.item route="admin.finance.home" label="Estatísticas" />
-                        <x-admin.sidebar.item route="admin.finance.packs" label="Pacotes" />
+                        <x-admin.sidebar.item route="admin.finance.packs" label="Pacotes Crédito" />
+                        <x-admin.sidebar.item route="admin.finance.game-package" label="Pacotes de Jogos" />
                         <x-admin.sidebar.item route="admin.finance.refound" label="Reembolso" />
                         <x-admin.sidebar.item route="admin.finance.credit" label="Créditos" />
                         <x-admin.sidebar.item route="admin.finance.gift" label="Gift Card" />
