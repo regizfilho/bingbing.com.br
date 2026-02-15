@@ -185,7 +185,7 @@ new #[Layout('layouts.app')] class extends Component {
                 return $game;
             });
 
-            return redirect()->route('games.edit', $game->uuid);
+            $this->redirect(route('games.edit', $game->uuid));
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao criar: ' . $e->getMessage());
         }
