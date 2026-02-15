@@ -7,11 +7,13 @@ use Livewire\Component;
 use Livewire\WithPagination;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\WithFileUploads;
 use App\Models\GameAudio;
+use Illuminate\Support\Facades\Storage;
 
 new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class extends Component {
 
-    use WithPagination;
+    use WithPagination, WithFileUploads;
 
     protected string $paginationTheme = 'tailwind';
 
@@ -29,6 +31,7 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
     public string $audio_type = 'mp3';
 
     public ?string $file_path = null;
+    public $audio_file = null; // Upload temporário
     public ?string $tts_text = null;
     public ?string $tts_voice = null;
     public ?string $tts_language = 'pt-BR';
@@ -49,9 +52,10 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
             'name' => ['required','string','max:255'],
             'type' => ['required','in:system,player'],
             'audio_type' => ['required','in:mp3,tts'],
-            'file_path' => ['required_if:audio_type,mp3','nullable','string','max:500'],
+            'audio_file' => ['nullable','file','mimes:mp3,wav,ogg','max:10240'],
+            'file_path' => ['required_without:audio_file','nullable','string','max:500'],
             'tts_text' => ['required_if:audio_type,tts','nullable','string','max:500'],
-            'tts_voice' => ['nullable','string','max:255'],
+            'tts_voice' => ['required_if:audio_type,tts','nullable','string','max:255'],
             'tts_language' => ['nullable','string','max:10'],
             'tts_rate' => ['nullable','numeric','min:0.1','max:10'],
             'tts_pitch' => ['nullable','numeric','min:0.1','max:2'],
@@ -93,6 +97,25 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
         ];
     }
 
+    #[Computed]
+    public function availableVoices(): array
+    {
+        return [
+            'pt-BR' => [
+                ['value' => 'Google português do Brasil (feminino)', 'label' => 'Feminina (BR)', 'gender' => 'female'],
+                ['value' => 'Google português do Brasil (masculino)', 'label' => 'Masculina (BR)', 'gender' => 'male'],
+            ],
+            'pt-PT' => [
+                ['value' => 'Google português (feminino)', 'label' => 'Feminina (PT)', 'gender' => 'female'],
+                ['value' => 'Google português (masculino)', 'label' => 'Masculina (PT)', 'gender' => 'male'],
+            ],
+            'en-US' => [
+                ['value' => 'Google US English (female)', 'label' => 'Female (US)', 'gender' => 'female'],
+                ['value' => 'Google US English (male)', 'label' => 'Male (US)', 'gender' => 'male'],
+            ],
+        ];
+    }
+
     public function openModal(): void
     {
         $this->resetForm();
@@ -112,6 +135,7 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
         $this->type = 'system';
         $this->audio_type = 'mp3';
         $this->file_path = null;
+        $this->audio_file = null;
         $this->tts_text = null;
         $this->tts_voice = null;
         $this->tts_language = 'pt-BR';
@@ -156,10 +180,26 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
                 ->update(['is_default'=>false]);
         }
 
+        $payload = $this->payload();
+
+        // Upload de arquivo
+        if ($this->audio_file) {
+            // Deletar arquivo antigo se existir
+            if ($this->editingId) {
+                $oldAudio = GameAudio::find($this->editingId);
+                if ($oldAudio && $oldAudio->file_path) {
+                    Storage::disk('public')->delete($oldAudio->file_path);
+                }
+            }
+
+            $path = $this->audio_file->store('sounds', 'public');
+            $payload['file_path'] = $path;
+        }
+
         if ($this->editingId) {
-            GameAudio::where('id',$this->editingId)->update($this->payload());
+            GameAudio::where('id',$this->editingId)->update($payload);
         } else {
-            GameAudio::create($this->payload());
+            GameAudio::create($payload);
         }
 
         $this->closeModal();
@@ -192,8 +232,22 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
 
     public function delete(int $id): void
     {
-        GameAudio::where('id',$id)->delete();
+        $audio = GameAudio::findOrFail($id);
+        
+        // Deletar arquivo físico se existir
+        if ($audio->file_path) {
+            Storage::disk('public')->delete($audio->file_path);
+        }
+        
+        $audio->delete();
     }
+
+    public function removeAudioFile(): void
+    {
+        $this->audio_file = null;
+    }
+
+    
 };
 ?>
 
@@ -335,6 +389,7 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
                         <th class="p-4 text-left font-semibold">Nome</th>
                         <th class="p-4 text-center font-semibold">Tipo</th>
                         <th class="p-4 text-center font-semibold">Formato</th>
+                        <th class="p-4 text-center font-semibold">Arquivo/Texto</th>
                         <th class="p-4 text-center font-semibold">Padrão</th>
                         <th class="p-4 text-center font-semibold">Status</th>
                         <th class="p-4 text-center font-semibold">Criado Em</th>
@@ -351,31 +406,43 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
                                         <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor"
                                             viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                                         </svg>
                                     </div>
                                     <div>
                                         <div class="text-white font-semibold">{{ $audio->name }}</div>
-                                        <div class="text-slate-400 text-xs">{{ $audio->type }}</div>
+                                        <div class="text-slate-400 text-xs">
+                                            {{ $audio->type === 'system' ? 'Sistema' : 'Display' }}
+                                        </div>
                                     </div>
                                 </div>
                             </td>
                             <td class="p-4 text-center">
                                 <span
-                                    class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                                    <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor"
-                                        viewBox="0 0 24 24">
+                                    class="inline-flex items-center gap-2 px-3 py-1.5 {{ $audio->type === 'system' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 'bg-purple-500/10 border-purple-500/20 text-purple-400' }} border rounded-lg">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
-                                    <span
-                                        class="text-blue-400 font-bold">{{ ucfirst($audio->audio_type) }}</span>
+                                    <span class="font-bold">{{ ucfirst($audio->type) }}</span>
                                 </span>
                             </td>
                             <td class="p-4 text-center">
-                                <div class="text-white font-bold text-lg">
-                                    {{ $audio->tts_text ?? $audio->file_path ?? 'N/A' }}
+                                <span class="inline-flex items-center gap-2 px-3 py-1.5 {{ $audio->audio_type === 'mp3' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-amber-500/10 border-amber-500/20 text-amber-400' }} border rounded-lg text-xs font-bold uppercase">
+                                    {{ $audio->audio_type }}
+                                </span>
+                            </td>
+                            <td class="p-4 text-center">
+                                <div class="text-white text-xs max-w-xs truncate mx-auto">
+                                    @if($audio->audio_type === 'mp3')
+                                        <span class="text-slate-400">{{ basename($audio->file_path) }}</span>
+                                    @else
+                                        <span>{{ $audio->tts_text }}</span>
+                                    @endif
                                 </div>
+                                @if($audio->audio_type === 'tts' && $audio->tts_voice)
+                                    <div class="text-xs text-slate-500 mt-1">{{ $audio->tts_voice }}</div>
+                                @endif
                             </td>
                             <td class="p-4 text-center">
                                 <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold {{ $audio->is_default ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-400 border border-slate-500/20' }}">
@@ -395,6 +462,18 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
                             </td>
                             <td class="p-4 text-right">
                                 <div class="flex items-center justify-end gap-2">
+                                    @if($audio->audio_type === 'mp3' && $audio->file_path)
+                                        <button onclick="new Audio('{{ Storage::url($audio->file_path) }}').play()"
+                                            class="p-2 text-green-400 hover:text-green-300 hover:bg-green-500/10 rounded-lg transition-all"
+                                            title="Testar Áudio">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                        </button>
+                                    @endif
                                     <button wire:click="edit({{ $audio->id }})"
                                         class="p-2 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg transition-all"
                                         title="Editar">
@@ -419,11 +498,11 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="p-12 text-center">
+                            <td colspan="8" class="p-12 text-center">
                                 <svg class="w-16 h-16 mx-auto mb-4 text-slate-500" fill="none"
                                     stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                        d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                                 </svg>
                                 <p class="text-slate-400 font-medium mb-2">Nenhum áudio encontrado</p>
                                 <p class="text-slate-500 text-sm">Crie seu primeiro áudio clicando no botão "Novo Áudio"</p>
@@ -475,7 +554,7 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-2">Tipo</label>
-                    <select wire:model="type"
+                    <select wire:model.live="type"
                         class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         <option value="system">Sistema (Notificações)</option>
                         <option value="player">Display (Público)</option>
@@ -484,99 +563,171 @@ new #[Layout('layouts.admin')] #[Title('Gestão de Áudios de Jogo')] class exte
 
                 <div>
                     <label class="block text-sm font-medium text-slate-300 mb-2">Formato</label>
-                    <select wire:model="audio_type"
+                    <select wire:model.live="audio_type"
                         class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                        <option value="mp3">MP3 (Arquivo)</option>
+                        <option value="mp3">MP3 (Arquivo de Áudio)</option>
                         <option value="tts">TTS (Voz Sintetizada)</option>
                     </select>
                 </div>
 
                 @if($audio_type === 'mp3')
                     <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Caminho do Arquivo MP3</label>
-                        <input wire:model.defer="file_path" type="text"
-                            class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            placeholder="Ex: sounds/numero.mp3">
-                        @error('file_path')
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Upload de Arquivo MP3</label>
+                        
+                        @if($audio_file)
+                            <div class="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 mb-3">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <svg class="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                                        </svg>
+                                        <div>
+                                            <div class="text-white font-semibold text-sm">{{ $audio_file->getClientOriginalName() }}</div>
+                                            <div class="text-emerald-400 text-xs">{{ number_format($audio_file->getSize() / 1024, 2) }} KB</div>
+                                        </div>
+                                    </div>
+                                    <button type="button" wire:click="removeAudioFile"
+                                        class="p-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition">
+                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        @elseif($editingId && $file_path)
+                            <div class="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-3">
+                                <div class="flex items-center gap-3">
+                                    <svg class="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                                    </svg>
+                                    <div>
+                                        <div class="text-white font-semibold text-sm">Arquivo atual</div>
+                                        <div class="text-blue-400 text-xs">{{ basename($file_path) }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
+                        <div class="relative border-2 border-dashed border-white/10 rounded-xl p-8 hover:border-indigo-500/50 transition-all cursor-pointer group"
+                            x-data="{ isDragging: false }"
+                            @dragover.prevent="isDragging = true"
+                            @dragleave.prevent="isDragging = false"
+                            @drop.prevent="isDragging = false; $refs.fileInput.files = $event.dataTransfer.files; $refs.fileInput.dispatchEvent(new Event('change', { bubbles: true }))"
+                            :class="{ 'border-indigo-500 bg-indigo-500/5': isDragging }">
+                            <input type="file" wire:model="audio_file" accept=".mp3,.wav,.ogg" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" x-ref="fileInput">
+                            <div class="text-center pointer-events-none">
+                                <svg class="w-12 h-12 mx-auto mb-3 text-slate-400 group-hover:text-indigo-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                </svg>
+                                <p class="text-white font-medium mb-1">Clique ou arraste o arquivo</p>
+                                <p class="text-slate-400 text-xs">MP3, WAV ou OGG (máx. 10MB)</p>
+                            </div>
+                            <div wire:loading wire:target="audio_file" class="absolute inset-0 bg-black/60 rounded-xl flex items-center justify-center">
+                                <div class="text-center">
+                                    <div class="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                                    <p class="text-white text-sm font-medium">Carregando...</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        @error('audio_file')
                             <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
                         @enderror
                     </div>
                 @else
                     <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Texto para TTS</label>
-                        <textarea wire:model.defer="tts_text" rows="2"
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Texto para Voz (TTS)</label>
+                        <textarea wire:model.defer="tts_text" rows="3"
                             class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            placeholder="Ex: Número sorteado"></textarea>
+                            placeholder="Ex: Número sorteado, atenção ao display"></textarea>
                         @error('tts_text')
+                            <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Selecionar Voz</label>
+                        <select wire:model.defer="tts_voice"
+                            class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="">Selecione uma voz</option>
+                            @foreach($this->availableVoices as $lang => $voices)
+                                <optgroup label="{{ $lang }}">
+                                    @foreach($voices as $voice)
+                                        <option value="{{ $voice['value'] }}">
+                                            {{ $voice['label'] }} - {{ ucfirst($voice['gender']) }}
+                                        </option>
+                                    @endforeach
+                                </optgroup>
+                            @endforeach
+                        </select>
+                        @error('tts_voice')
                             <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
                         @enderror
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-slate-300 mb-2">Voz TTS</label>
-                            <input wire:model.defer="tts_voice" type="text"
-                                class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                placeholder="Ex: Google Português">
-                            @error('tts_voice')
-                                <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
-                            @enderror
-                        </div>
-
-                        <div>
                             <label class="block text-sm font-medium text-slate-300 mb-2">Idioma</label>
-                            <input wire:model.defer="tts_language" type="text"
-                                class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                placeholder="Ex: pt-BR">
+                            <select wire:model.defer="tts_language"
+                                class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <option value="pt-BR">Português (BR)</option>
+                                <option value="pt-PT">Português (PT)</option>
+                                <option value="en-US">Inglês (US)</option>
+                                <option value="es-ES">Espanhol (ES)</option>
+                            </select>
                             @error('tts_language')
                                 <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
                             @enderror
                         </div>
 
                         <div>
-                            <label class="block text-sm font-medium text-slate-300 mb-2">Velocidade (1.0 normal)</label>
+                            <label class="block text-sm font-medium text-slate-300 mb-2">Velocidade</label>
                             <input wire:model.defer="tts_rate" type="number" step="0.1" min="0.1" max="10"
                                 class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <p class="text-xs text-slate-500 mt-1">0.1 - 10 (1.0 = normal)</p>
                             @error('tts_rate')
                                 <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
                             @enderror
                         </div>
-                    </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-slate-300 mb-2">Tom (1.0 normal)</label>
+                            <label class="block text-sm font-medium text-slate-300 mb-2">Tom</label>
                             <input wire:model.defer="tts_pitch" type="number" step="0.1" min="0.1" max="2"
                                 class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <p class="text-xs text-slate-500 mt-1">0.1 - 2 (1.0 = normal)</p>
                             @error('tts_pitch')
                                 <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
                             @enderror
                         </div>
+                    </div>
 
-                        <div>
-                            <label class="block text-sm font-medium text-slate-300 mb-2">Volume (0-1)</label>
-                            <input wire:model.defer="tts_volume" type="number" step="0.1" min="0" max="1"
-                                class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                            @error('tts_volume')
-                                <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
-                            @enderror
-                        </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Volume (0-1)</label>
+                        <input wire:model.defer="tts_volume" type="number" step="0.1" min="0" max="1"
+                            class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <p class="text-xs text-slate-500 mt-1">0 = mudo, 1 = máximo</p>
+                        @error('tts_volume')
+                            <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
+                        @enderror
                     </div>
                 @endif
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Padrão?</label>
-                        <input wire:model="is_default" type="checkbox"
+                    <div class="flex items-center gap-3 p-4 bg-black/20 border border-white/10 rounded-xl">
+                        <input wire:model="is_default" type="checkbox" id="is_default"
                             class="w-5 h-5 bg-[#111827] border-white/10 rounded focus:ring-2 focus:ring-indigo-500">
-                        <span class="ml-2 text-sm text-slate-300">Definir como padrão para este tipo</span>
+                        <label for="is_default" class="text-sm text-slate-300 cursor-pointer">
+                            Definir como padrão
+                        </label>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-slate-300 mb-2">Ordem de Exibição</label>
+                        <label class="block text-sm font-medium text-slate-300 mb-2">Ordem</label>
                         <input wire:model.defer="order" type="number" min="0"
-                            class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                            placeholder="Ex: 0">
+                            class="w-full bg-[#111827] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                         @error('order')
                             <p class="text-red-400 text-xs mt-1">{{ $message }}</p>
                         @enderror

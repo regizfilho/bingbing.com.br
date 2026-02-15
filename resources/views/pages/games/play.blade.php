@@ -14,11 +14,11 @@ use Illuminate\Support\Str;
 use App\Models\GameAudio;
 
 new class extends Component {
-    public string $selectedAudioType = 'system'; // system or player
-    public string $selectedNumberSound = 'numero_sorteado'; // default sound name
-    public string $selectedWinnerSound = 'vencedor';
+    public string $selectedAudioType = 'tts';
+    public string $selectedNumberSound = 'Número Sorteado (Voz Feminina BR)';
+    public string $selectedWinnerSound = 'Vencedor (Voz Feminina BR)';
     public bool $audioEnabled = true;
-    public bool $ttsEnabled = true; // For browser voices
+    public bool $ttsEnabled = true;
 
     public Game $game;
     public bool $isCreator = false;
@@ -64,6 +64,20 @@ new class extends Component {
             ->firstOrFail();
 
         $this->loadGameData();
+    }
+
+    public function updatedSelectedAudioType(): void
+    {
+        $firstNumber = $this->numberSounds->where('audio_type', $this->selectedAudioType)->first();
+        $firstWinner = $this->winnerSounds->where('audio_type', $this->selectedAudioType)->first();
+
+        if ($firstNumber) {
+            $this->selectedNumberSound = $firstNumber->name;
+        }
+
+        if ($firstWinner) {
+            $this->selectedWinnerSound = $firstWinner->name;
+        }
     }
 
     #[On('game-updated')]
@@ -119,19 +133,11 @@ new class extends Component {
 
     public function drawNumber(): void
     {
-        // Travas de segurança
-        if ($this->isDrawing) {
-            return;
-        }
+        if ($this->isDrawing) return;
 
-        if (!$this->isCreator || $this->game->status !== 'active') {
-            return;
-        }
+        if (!$this->isCreator || $this->game->status !== 'active') return;
 
-        // Verificar se todos os números já foram sorteados
-        if ($this->drawnCount >= 75) {
-            return;
-        }
+        if ($this->drawnCount >= 75) return;
 
         $this->isDrawing = true;
 
@@ -146,8 +152,12 @@ new class extends Component {
 
             $this->finishAction("Número {$draw->number} sorteado!");
 
-            // Pequeno delay para garantir que a trava seja respeitada
-            usleep(500000); // 0.5 segundo
+            \Log::info('Disparando evento de som de número (controle)', [
+                'name' => $this->selectedNumberSound,
+                'audioEnabled' => $this->audioEnabled,
+            ]);
+
+            usleep(500000);
 
             $this->dispatch('play-sound', type: 'number', name: $this->selectedNumberSound);
         } catch (\Exception $e) {
@@ -166,7 +176,11 @@ new class extends Component {
         }
 
         $allWinningCards = $this->game->checkWinningCards() ?? collect();
-        $alreadyWinnerIds = DB::table('winners')->where('game_id', $this->game->id)->where('round_number', $this->game->current_round)->pluck('card_id')->toArray();
+        $alreadyWinnerIds = DB::table('winners')
+            ->where('game_id', $this->game->id)
+            ->where('round_number', $this->game->current_round)
+            ->pluck('card_id')
+            ->toArray();
 
         $this->winningCards = $allWinningCards->whereNotIn('id', $alreadyWinnerIds)->values();
 
@@ -179,9 +193,7 @@ new class extends Component {
 
     public function claimPrize(string $cardUuid, ?string $prizeUuid = null): void
     {
-        if ($this->isProcessingAction) {
-            return;
-        }
+        if ($this->isProcessingAction) return;
 
         if (!$this->isCreator || $this->game->status !== 'active') {
             $this->dispatch('notify', type: 'error', text: 'Ação não permitida.');
@@ -199,8 +211,10 @@ new class extends Component {
                 return;
             }
 
-            // Verificar se já existe um vencedor para esta cartela
-            $existingWinner = Winner::where('game_id', $this->game->id)->where('card_id', $card->id)->where('round_number', $this->game->current_round)->exists();
+            $existingWinner = Winner::where('game_id', $this->game->id)
+                ->where('card_id', $card->id)
+                ->where('round_number', $this->game->current_round)
+                ->exists();
 
             if ($existingWinner) {
                 $this->dispatch('notify', type: 'warning', text: 'Esta cartela já foi premiada nesta rodada.');
@@ -226,24 +240,19 @@ new class extends Component {
                     'won_at' => now(),
                 ]);
 
-                // 🏆 NOTIFICAÇÃO: Vitória para o vencedor
                 $pushService = app(\App\Services\PushNotificationService::class);
 
                 if ($prize) {
                     $message = \App\Services\NotificationMessages::bingoWinner($this->game->name, $prize->name);
-
                     $pushService->notifyUser($card->player->user_id, $message['title'], $message['body'], route('games.play', $this->game->uuid));
                 } else {
-                    // Bingo de honra
                     $message = [
                         'title' => '🏅 Bingo de Honra!',
                         'body' => "Você completou uma cartela em {$this->game->name}!",
                     ];
-
                     $pushService->notifyUser($card->player->user_id, $message['title'], $message['body'], route('games.play', $this->game->uuid));
                 }
 
-                // 📢 NOTIFICAÇÃO: Informar outros jogadores sobre o vencedor
                 $otherPlayerIds = $this->game->players->where('user_id', '!=', $card->player->user_id)->pluck('user_id')->toArray();
 
                 if (!empty($otherPlayerIds)) {
@@ -262,6 +271,7 @@ new class extends Component {
             });
 
             $this->finishAction($prize ? 'Prêmio concedido!' : 'Bingo de Honra registrado!');
+
             $this->dispatch('play-sound', type: 'winner', name: $this->selectedWinnerSound);
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao conceder prêmio: ' . $e->getMessage());
@@ -283,9 +293,7 @@ new class extends Component {
 
     public function startNextRound(): void
     {
-        if ($this->isProcessingAction) {
-            return;
-        }
+        if ($this->isProcessingAction) return;
 
         if (!$this->isCreator) {
             $this->dispatch('notify', type: 'error', text: 'Apenas o criador pode iniciar rodadas.');
@@ -331,7 +339,6 @@ new class extends Component {
                 }
             });
 
-            // 🔄 NOTIFICAÇÃO: Nova rodada para todos os jogadores
             $pushService = app(\App\Services\PushNotificationService::class);
             $playerIds = $this->game->players->pluck('user_id')->toArray();
 
@@ -347,7 +354,8 @@ new class extends Component {
             }
 
             $this->finishAction("Rodada {$proxRodada} iniciada!");
-            $this->dispatch('play-sound', type: 'system', name: 'proxima_rodada'); // Adicionado
+
+            $this->dispatch('play-sound', type: 'system', name: 'proxima_rodada');
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao iniciar rodada: ' . $e->getMessage());
         } finally {
@@ -357,9 +365,7 @@ new class extends Component {
 
     public function startGame(): void
     {
-        if ($this->isProcessingAction) {
-            return;
-        }
+        if ($this->isProcessingAction) return;
 
         if (!$this->isCreator || $this->game->status !== 'waiting') {
             $this->dispatch('notify', type: 'error', text: 'Não é possível iniciar a partida.');
@@ -376,7 +382,6 @@ new class extends Component {
         try {
             $this->game->update(['status' => 'active', 'started_at' => now()]);
 
-            // 🎮 NOTIFICAÇÃO: Partida iniciada para todos os jogadores
             $pushService = app(\App\Services\PushNotificationService::class);
             $playerIds = $this->game->players->pluck('user_id')->toArray();
 
@@ -392,7 +397,8 @@ new class extends Component {
             }
 
             $this->finishAction('Partida iniciada!');
-            $this->dispatch('play-sound', type: 'system', name: 'inicio_partida'); // Adicionado
+
+            $this->dispatch('play-sound', type: 'system', name: 'inicio_partida');
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao iniciar partida: ' . $e->getMessage());
         } finally {
@@ -402,9 +408,7 @@ new class extends Component {
 
     public function finishGame(): void
     {
-        if ($this->isProcessingAction) {
-            return;
-        }
+        if ($this->isProcessingAction) return;
 
         if (!$this->isCreator) {
             $this->dispatch('notify', type: 'error', text: 'Apenas o criador pode finalizar a partida.');
@@ -416,7 +420,6 @@ new class extends Component {
         try {
             $this->game->update(['status' => 'finished', 'finished_at' => now()]);
 
-            // 🏁 NOTIFICAÇÃO: Partida finalizada para todos os jogadores
             $pushService = app(\App\Services\PushNotificationService::class);
             $playerIds = $this->game->players->pluck('user_id')->toArray();
 
@@ -432,7 +435,8 @@ new class extends Component {
             }
 
             $this->finishAction('Partida finalizada!');
-            $this->dispatch('play-sound', type: 'system', name: 'fim_partida'); // Adicionado
+
+            $this->dispatch('play-sound', type: 'system', name: 'fim_partida');
         } catch (\Exception $e) {
             $this->dispatch('notify', type: 'error', text: 'Erro ao finalizar partida: ' . $e->getMessage());
         } finally {
@@ -464,13 +468,8 @@ new class extends Component {
             return;
         }
 
-        if ($this->tempSeconds < 2) {
-            $this->tempSeconds = 2;
-        }
-
-        if ($this->tempSeconds > 60) {
-            $this->tempSeconds = 60;
-        }
+        if ($this->tempSeconds < 2) $this->tempSeconds = 2;
+        if ($this->tempSeconds > 60) $this->tempSeconds = 60;
 
         $this->game->update(['auto_draw_seconds' => $this->tempSeconds]);
         $this->dispatch('notify', type: 'success', text: "Intervalo atualizado para {$this->tempSeconds}s");
@@ -482,13 +481,8 @@ new class extends Component {
             return;
         }
 
-        if ($this->isPaused || $this->winningCards->isNotEmpty()) {
-            return;
-        }
-
-        if ($this->drawnCount >= 75) {
-            return;
-        }
+        if ($this->isPaused || $this->winningCards->isNotEmpty()) return;
+        if ($this->drawnCount >= 75) return;
 
         $this->drawNumber();
     }
@@ -499,26 +493,34 @@ new class extends Component {
         return $this->isCreator;
     }
 
-    // Add computed
-    #[Computed]
-    public function availableSounds()
-    {
-        return GameAudio::active()->default()->byType($this->selectedAudioType)->orderBy('order')->get();
-    }
-
     #[Computed]
     public function numberSounds()
     {
-        return $this->availableSounds->where('name', 'like', '%numero%');
+        return GameAudio::active()
+            ->byType('player')
+            ->where(function($q) {
+                $q->where('name', 'like', '%Número%')
+                  ->orWhere('name', 'like', '%numero%')
+                  ->orWhere('name', 'like', '%Number%');
+            })
+            ->orderBy('order')
+            ->get();
     }
 
     #[Computed]
     public function winnerSounds()
     {
-        return $this->availableSounds->where('name', 'like', '%vencedor%');
+        return GameAudio::active()
+            ->byType('player')
+            ->where(function($q) {
+                $q->where('name', 'like', '%Vencedor%')
+                  ->orWhere('name', 'like', '%vencedor%')
+                  ->orWhere('name', 'like', '%Winner%');
+            })
+            ->orderBy('order')
+            ->get();
     }
 
-    // Add methods
     public function toggleAudio(): void
     {
         $this->audioEnabled = !$this->audioEnabled;
@@ -529,12 +531,18 @@ new class extends Component {
     {
         $this->selectedNumberSound = $soundName;
         $this->dispatch('change-sound', sound: 'number', name: $soundName);
+
+        session()->put('game_audio_number', $soundName);
+        session()->save();
     }
 
     public function changeWinnerSound($soundName): void
     {
         $this->selectedWinnerSound = $soundName;
         $this->dispatch('change-sound', sound: 'winner', name: $soundName);
+
+        session()->put('game_audio_winner', $soundName);
+        session()->save();
     }
 
     public function toggleTTS(): void
@@ -544,6 +552,13 @@ new class extends Component {
     }
 };
 ?>
+
+<!-- Bloqueio de áudio local nesta tela (controle/criador) -->
+<script>
+    window.isControlPanel = true;
+    window.isPublicDisplay = false;
+    console.log('Tela de controle → áudio BLOQUEADO localmente');
+</script>
 
 <div class="min-h-screen bg-[#05070a] text-slate-200">
     <div class="flex flex-col lg:flex-row min-h-screen relative">
@@ -690,47 +705,100 @@ new class extends Component {
 
                         <!-- Audio Controls -->
                         <div class="bg-[#161920] p-4 rounded-xl border border-white/10">
-                            <h4 class="text-sm font-bold text-white mb-3 uppercase tracking-wider">Controles de Áudio
-                            </h4>
+                            <h4 class="text-sm font-bold text-white mb-3 uppercase tracking-wider">Áudio do Display</h4>
                             <div class="space-y-3">
-                                <div class="flex items-center justify-between">
-                                    <span class="text-xs font-semibold text-slate-400">Som Ativado</span>
+                                <!-- Toggle Principal -->
+                                <div class="flex items-center justify-between p-3 bg-[#0b0d11] rounded-lg border border-white/5">
+                                    <span class="text-xs font-semibold text-slate-300">Áudio Ativado</span>
                                     <button wire:click="toggleAudio"
-                                        class="w-10 h-5 rounded-full relative {{ $audioEnabled ? 'bg-blue-600' : 'bg-slate-600' }}">
-                                        <div
-                                            class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition {{ $audioEnabled ? 'translate-x-5' : '' }}">
-                                        </div>
+                                        class="w-12 h-6 rounded-full relative transition-all {{ $audioEnabled ? 'bg-blue-600' : 'bg-slate-600' }}">
+                                        <div class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform {{ $audioEnabled ? 'translate-x-6' : '' }}"></div>
                                     </button>
                                 </div>
-                                <div class="flex items-center justify-between">
-                                    <span class="text-xs font-semibold text-slate-400">Voz Sintetizada (TTS)</span>
-                                    <button wire:click="toggleTTS"
-                                        class="w-10 h-5 rounded-full relative {{ $ttsEnabled ? 'bg-purple-600' : 'bg-slate-600' }}">
-                                        <div
-                                            class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition {{ $ttsEnabled ? 'translate-x-5' : '' }}">
+
+                                @if($audioEnabled)
+                                    <!-- Escolher Tipo de Áudio -->
+                                    <div class="p-3 bg-[#0b0d11] rounded-lg border border-white/5">
+                                        <label class="block text-xs font-semibold text-slate-400 mb-2">Tipo de Áudio</label>
+                                        <div class="grid grid-cols-2 gap-2">
+                                            <button wire:click="$set('selectedAudioType', 'mp3')" type="button"
+                                                class="px-3 py-2 rounded-lg text-xs font-bold transition-all {{ $selectedAudioType === 'mp3' ? 'bg-blue-600 text-white' : 'bg-[#161920] text-slate-400 hover:bg-[#1a1f2a]' }}">
+                                                🎵 Áudio MP3
+                                            </button>
+                                            <button wire:click="$set('selectedAudioType', 'tts')" type="button"
+                                                class="px-3 py-2 rounded-lg text-xs font-bold transition-all {{ $selectedAudioType === 'tts' ? 'bg-purple-600 text-white' : 'bg-[#161920] text-slate-400 hover:bg-[#1a1f2a]' }}">
+                                                🎤 Voz (TTS)
+                                            </button>
                                         </div>
-                                    </button>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-400 mb-1">Som para
-                                        Número</label>
-                                    <select wire:model.live="selectedNumberSound"
-                                        class="w-full bg-[#0b0d11] border border-white/10 rounded text-xs p-2 text-white">
-                                        @foreach ($this->numberSounds as $sound)
-                                            <option value="{{ $sound->name }}">{{ ucfirst($sound->name) }}</option>
-                                        @endforeach
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-400 mb-1">Som para
-                                        Vencedor</label>
-                                    <select wire:model.live="selectedWinnerSound"
-                                        class="w-full bg-[#0b0d11] border border-white/10 rounded text-xs p-2 text-white">
-                                        @foreach ($this->winnerSounds as $sound)
-                                            <option value="{{ $sound->name }}">{{ ucfirst($sound->name) }}</option>
-                                        @endforeach
-                                    </select>
-                                </div>
+                                    </div>
+
+                                    @if($selectedAudioType === 'mp3')
+                                        <!-- Sons MP3 -->
+                                        <div class="p-3 bg-[#0b0d11] rounded-lg border border-white/5">
+                                            <label class="block text-xs font-semibold text-slate-400 mb-2">Som para Número</label>
+                                            <select wire:model.live="selectedNumberSound"
+                                                class="w-full bg-[#161920] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                @foreach ($this->numberSounds->where('audio_type', 'mp3') as $sound)
+                                                    <option value="{{ $sound->name }}">{{ $sound->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+
+                                        <div class="p-3 bg-[#0b0d11] rounded-lg border border-white/5">
+                                            <label class="block text-xs font-semibold text-slate-400 mb-2">Som para Vencedor</label>
+                                            <select wire:model.live="selectedWinnerSound"
+                                                class="w-full bg-[#161920] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                                @foreach ($this->winnerSounds->where('audio_type', 'mp3') as $sound)
+                                                    <option value="{{ $sound->name }}">{{ $sound->name }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                    @else
+                                        <!-- Vozes TTS -->
+                                        <div class="p-3 bg-[#0b0d11] rounded-lg border border-white/5">
+                                            <label class="block text-xs font-semibold text-slate-400 mb-2">Voz para Número</label>
+                                            <select wire:model.live="selectedNumberSound"
+                                                class="w-full bg-[#161920] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                                @foreach ($this->numberSounds->where('audio_type', 'tts') as $sound)
+                                                    <option value="{{ $sound->name }}">{{ $sound->name }}</option>
+                                                @endforeach
+                                            </select>
+                                            @php
+                                                $selectedNumber = $this->numberSounds->firstWhere('name', $selectedNumberSound);
+                                            @endphp
+                                            @if($selectedNumber)
+                                                <div class="mt-2 text-xs text-purple-400">
+                                                    📢 {{ $selectedNumber->tts_voice }}
+                                                </div>
+                                            @endif
+                                        </div>
+
+                                        <div class="p-3 bg-[#0b0d11] rounded-lg border border-white/5">
+                                            <label class="block text-xs font-semibold text-slate-400 mb-2">Voz para Vencedor</label>
+                                            <select wire:model.live="selectedWinnerSound"
+                                                class="w-full bg-[#161920] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                                @foreach ($this->winnerSounds->where('audio_type', 'tts') as $sound)
+                                                    <option value="{{ $sound->name }}">{{ $sound->name }}</option>
+                                                @endforeach
+                                            </select>
+                                            @php
+                                                $selectedWinner = $this->winnerSounds->firstWhere('name', $selectedWinnerSound);
+                                            @endphp
+                                            @if($selectedWinner)
+                                                <div class="mt-2 text-xs text-purple-400">
+                                                    📢 {{ $selectedWinner->tts_voice }}
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @endif
+
+                                    <!-- Info -->
+                                    <div class="p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                                        <p class="text-[10px] text-blue-400 text-center font-semibold">
+                                            Sons tocam automaticamente no display público
+                                        </p>
+                                    </div>
+                                @endif
                             </div>
                         </div>
                     </div>

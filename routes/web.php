@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\SessionController;
 use App\Http\Controllers\PushNotificationController;
+use App\Models\GameAudio;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('track')->group(function () {
@@ -10,14 +11,26 @@ Route::middleware('track')->group(function () {
 
     // Rotas de notificação push REQUEREM autenticação
     Route::middleware('auth')->group(function () {
+        Route::get('/api/game-audio/{name}', function ($name) {
+            $audio = GameAudio::where('name', $name)
+                ->where('is_active', true)
+                ->first();
+
+            if (!$audio) {
+                return response()->json(['error' => 'Audio not found'], 404);
+            }
+
+            return response()->json($audio);
+        });
+
         Route::post('/api/push/subscribe', [PushNotificationController::class, 'subscribe']);
         Route::post('/api/push/unsubscribe', [PushNotificationController::class, 'unsubscribe']);
-        
+
         // Click tracking com rate limiting
         Route::middleware('throttle:30,1')->group(function () {
             Route::post('/notifications/click/{notification:uuid}', [PushNotificationController::class, 'click'])
                 ->name('notifications.click');
-                
+
             Route::get('/notifications/click/{notification:uuid}', [PushNotificationController::class, 'clickGet'])
                 ->name('notifications.click.get');
         });
@@ -45,7 +58,7 @@ Route::middleware('track')->group(function () {
                 Route::livewire('/coupon/analytics', 'pages::admin.marketing.coupon-analytics')->name('coupon.analytics');
             });
 
-             Route::prefix('game')->name('game.')->group(function () {
+            Route::prefix('game')->name('game.')->group(function () {
                 Route::livewire('/sounds', 'pages::admin.game.sounds')->name('sounds');
             });
 
@@ -73,10 +86,10 @@ Route::middleware('track')->group(function () {
         });
 
         Route::prefix('wallet')->name('wallet.')->group(function () {
-           
+
             Route::livewire('/transactions', 'pages::wallet.transactions')->name('transactions');
             Route::livewire('/gift-cards/{param?}', 'pages::wallet.gift')->name('gift');
-             Route::livewire('/{param?}', 'pages::wallet.index')->name('index');
+            Route::livewire('/{param?}', 'pages::wallet.index')->name('index');
         });
 
         Route::prefix('games')->name('games.')->group(function () {
